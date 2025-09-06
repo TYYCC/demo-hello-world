@@ -339,6 +339,16 @@ static esp_err_t start_tcp_modules(void) {
         return ESP_FAIL;
     }
     
+    // 初始化PWM控制器
+    ESP_LOGI(TAG, "初始化PWM控制器");
+    bool pwm_result = tcp_client_telemetry_init_pwm(10000); // 10kHz频率
+    if (!pwm_result) {
+        ESP_LOGE(TAG, "PWM控制器初始化失败");
+        return ESP_FAIL;
+    } else {
+        ESP_LOGI(TAG, "PWM控制器初始化成功");
+    }
+    
     // 注册PWM控制回调函数
     tcp_client_telemetry_register_rc_callback(pwm_control_callback);
     ESP_LOGI(TAG, "PWM控制回调函数已注册");

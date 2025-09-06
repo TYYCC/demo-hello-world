@@ -179,9 +179,19 @@ void tcp_client_telemetry_print_received_frame(const uint8_t *buffer, uint16_t b
 
 /**
  * @brief 注册遥控命令回调函数
+ * 
  * @param callback 回调函数指针
  */
 void tcp_client_telemetry_register_rc_callback(remote_control_callback_t callback);
+
+/**
+ * @brief 初始化PWM控制器
+ * 
+ * @param frequency PWM频率(Hz)，0表示使用默认频率
+ * @return true 初始化成功
+ * @return false 初始化失败
+ */
+bool tcp_client_telemetry_init_pwm(uint32_t frequency);
 
 #ifdef __cplusplus
 }

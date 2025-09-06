@@ -11,6 +11,7 @@ set(RECEIVER_SRCS
     "src/task.c"
     "tcp_hb/src/tcp_client_hb.c"
     "tcp_telemetry/src/tcp_client_telemetry.c"
+    "tcp_telemetry/src/pwm_controller.c"
 )
 
 idf_component_register(

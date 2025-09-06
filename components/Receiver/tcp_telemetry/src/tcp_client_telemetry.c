@@ -5,6 +5,7 @@
  * @date 2025-09-05
  */
 #include "tcp_client_telemetry.h"
+#include "pwm_controller.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -144,6 +145,14 @@ static void parse_and_handle_control_frame(const uint8_t *payload, uint16_t payl
     for (int i = 0; i < rc_data.channel_count; i++) {
         float duty_cycle = (rc_data.channel_values[i] / 1000.0f) * 100.0f;
         ESP_LOGI(TAG, "通道 %d: 值 = %d, 占空比 = %.2f%%", i + 1, rc_data.channel_values[i], duty_cycle);
+    }
+
+    // 设置PWM输出
+    esp_err_t ret = pwm_controller_set_channels(rc_data.channel_values, rc_data.channel_count);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "设置PWM通道失败: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "PWM通道设置成功，通道数: %d", rc_data.channel_count);
     }
 
     if (g_rc_callback) {
@@ -644,4 +653,17 @@ void tcp_client_telemetry_print_received_frame(const uint8_t *buffer, uint16_t b
 void tcp_client_telemetry_register_rc_callback(remote_control_callback_t callback) {
     g_rc_callback = callback;
     ESP_LOGI(TAG, "遥控命令回调函数已注册");
+}
+
+bool tcp_client_telemetry_init_pwm(uint32_t frequency) {
+    ESP_LOGI(TAG, "初始化PWM控制器，频率: %lu Hz", frequency);
+    
+    esp_err_t ret = pwm_controller_init(frequency);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "PWM控制器初始化失败: %s", esp_err_to_name(ret));
+        return false;
+    }
+    
+    ESP_LOGI(TAG, "PWM控制器初始化成功");
+    return true;
 }
