@@ -27,7 +27,16 @@ extern "C" {
 #define TCP_CLIENT_TELEMETRY_SEND_TIMEOUT_MS 5000    // 发送超时时间
 #define TCP_CLIENT_TELEMETRY_RECV_TIMEOUT_MS 1000    // 接收超时时间
 
-// ----------------- 客户端状态 -----------------
+// ----------------- 新增：遥控数据结构 -----------------
+typedef struct {
+    uint8_t channel_count;
+    uint16_t channel_values[8]; // 最多支持8通道
+} remote_control_data_t;
+
+// ----------------- 新增：遥控命令回调函数类型 -----------------
+typedef void (*remote_control_callback_t)(const remote_control_data_t *rc_data);
+
+// 客户端状态 -----------------
 typedef enum {
     TCP_CLIENT_TELEMETRY_STATE_DISCONNECTED = 0,
     TCP_CLIENT_TELEMETRY_STATE_CONNECTING,
@@ -35,7 +44,7 @@ typedef enum {
     TCP_CLIENT_TELEMETRY_STATE_ERROR
 } tcp_client_telemetry_state_t;
 
-// ----------------- 遥测统计信息 -----------------
+// 遥测统计信息 -----------------
 typedef struct {
     uint32_t telemetry_sent_count;           // 已发送遥测包数量
     uint32_t telemetry_failed_count;         // 发送失败遥测包数量
@@ -48,7 +57,7 @@ typedef struct {
     uint32_t bytes_received;                 // 已接收字节数
 } tcp_client_telemetry_stats_t;
 
-// ----------------- 遥测客户端配置 -----------------
+// 遥测客户端配置 -----------------
 typedef struct {
     char server_ip[16];                      // 服务器IP地址
     uint16_t server_port;                    // 服务器端口
@@ -58,7 +67,7 @@ typedef struct {
     bool auto_reconnect_enabled;             // 是否启用自动重连
 } tcp_client_telemetry_config_t;
 
-// ----------------- 模拟遥测数据 -----------------
+// 模拟遥测数据 -----------------
 typedef struct {
     uint16_t voltage_mv;
     uint16_t current_ma;
@@ -68,7 +77,7 @@ typedef struct {
     int32_t altitude_cm;
 } tcp_client_telemetry_sim_data_t;
 
-// ----------------- 函数声明 -----------------
+// 函数声明 -----------------
 
 /**
  * @brief 初始化TCP遥测客户端
@@ -167,6 +176,12 @@ void tcp_client_telemetry_update_sim_data(tcp_client_telemetry_sim_data_t *sim_d
  * @param buffer_len 缓冲区长度
  */
 void tcp_client_telemetry_print_received_frame(const uint8_t *buffer, uint16_t buffer_len);
+
+/**
+ * @brief 注册遥控命令回调函数
+ * @param callback 回调函数指针
+ */
+void tcp_client_telemetry_register_rc_callback(remote_control_callback_t callback);
 
 #ifdef __cplusplus
 }

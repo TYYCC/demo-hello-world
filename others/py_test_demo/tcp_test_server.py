@@ -28,7 +28,9 @@ class TCPTestServer:
         self.running = False
         self.heartbeat_stats = {'total': 0, 'valid': 0, 'invalid': 0}
         self.telemetry_stats = {'total': 0, 'valid': 0, 'invalid': 0}
-        
+        self.telemetry_clients = []
+        self.lock = threading.Lock()
+
     def crc16_modbus(self, data):
         """计算CRC16 Modbus校验"""
         crc = 0xFFFF
@@ -120,11 +122,62 @@ class TCPTestServer:
             }, None
         except struct.error as e:
             return None, f"遥测解析错误: {e}"
-    
+
+    def create_control_command(self, channel_values):
+        """创建遥控命令帧"""
+        channel_count = len(channel_values)
+        if channel_count > 8:
+            raise ValueError("通道数量不能超过8")
+
+        # 负载: 通道数量 (1B) + 通道值 (N*2B)
+        payload = struct.pack('<B', channel_count)
+        for value in channel_values:
+            payload += struct.pack('>H', value) # 通道值为大端序
+
+        # 帧长度: 类型(1B) + 负载(len(payload)) (不包含CRC)
+        frame_len = 1 + len(payload)
+
+        # 待计算CRC的数据: 长度(1B) + 类型(1B) + 负载
+        crc_data = struct.pack('<B', frame_len) + struct.pack('<B', FRAME_TYPE_COMMAND) + payload
+        crc = self.crc16_modbus(crc_data)
+
+        # 完整帧: 帧头(2B) + 长度(1B) + 类型(1B) + 负载 + CRC(2B)
+        frame = struct.pack('<BB', FRAME_HEADER_1, FRAME_HEADER_2) + crc_data + struct.pack('<H', crc)
+        return frame
+
+    def send_control_commands(self, client_socket):
+        """循环发送遥控命令"""
+        try:
+            throttle = 500
+            direction = 500
+            while self.running and not client_socket._closed:
+                # 模拟油门和方向变化
+                throttle = (throttle + 10) % 1001
+                channel_values = [throttle, direction, 500, 500] # 4通道
+
+                command_frame = self.create_control_command(channel_values)
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] 发送遥控命令: {command_frame.hex()}")
+                client_socket.sendall(command_frame)
+                time.sleep(1)
+        except (socket.error, BrokenPipeError) as e:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] 发送遥控命令时连接断开: {e}")
+        finally:
+            with self.lock:
+                if client_socket in self.telemetry_clients:
+                    self.telemetry_clients.remove(client_socket)
+
     def handle_client(self, client_socket, client_addr, port_type):
         """处理客户端连接"""
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {port_type}客户端连接: {client_addr}")
         
+        if port_type == "遥测":
+            with self.lock:
+                self.telemetry_clients.append(client_socket)
+            # 为遥测客户端启动一个发送遥控命令的线程
+            command_thread = threading.Thread(target=self.send_control_commands, args=(client_socket,))
+            command_thread.daemon = True
+            command_thread.start()
+
         try:
             while self.running:
                 data = client_socket.recv(1024)
@@ -177,7 +230,11 @@ class TCPTestServer:
         finally:
             client_socket.close()
             print(f"[{datetime.now().strftime('%H:%M:%S')}] {port_type}客户端断开: {client_addr}")
-    
+            if port_type == "遥测":
+                with self.lock:
+                    if client_socket in self.telemetry_clients:
+                        self.telemetry_clients.remove(client_socket)
+
     def start_server(self, port, port_type):
         """启动服务器"""
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

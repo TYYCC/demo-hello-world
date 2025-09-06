@@ -32,13 +32,14 @@ static EventGroupHandle_t s_tcp_event_group = NULL;
 #define TCP_STOP_TASK_BIT         BIT2
 
 // TCP配置
-static const char *s_server_ip = "192.168.123.132";
+static const char *s_server_ip = "192.168.76.229";
 
 // 内部函数声明
 static void wifi_event_callback(wifi_pairing_state_t state, const char* ssid);
 static void tcp_task_function(void *pvParameters);
 static esp_err_t start_tcp_modules(void);
 static esp_err_t stop_tcp_modules(void);
+static void pwm_control_callback(const remote_control_data_t* rc_data);
 
 /**
  * @brief 初始化TCP任务管理器
@@ -338,6 +339,10 @@ static esp_err_t start_tcp_modules(void) {
         return ESP_FAIL;
     }
     
+    // 注册PWM控制回调函数
+    tcp_client_telemetry_register_rc_callback(pwm_control_callback);
+    ESP_LOGI(TAG, "PWM控制回调函数已注册");
+    
     // 启动心跳模块
     if (!tcp_client_hb_start("tcp_hb_task", 4096, 5)) {
         ESP_LOGE(TAG, "心跳模块启动失败");
@@ -367,13 +372,35 @@ static esp_err_t stop_tcp_modules(void) {
 }
 
 /**
+ * @brief PWM控制回调函数
+ * @param rc_data 遥控数据指针
+ */
+static void pwm_control_callback(const remote_control_data_t* rc_data) {
+    if (!rc_data) {
+        ESP_LOGW(TAG, "PWM回调: 遥控数据为空");
+        return;
+    }
+    
+    ESP_LOGI(TAG, "PWM控制数据解析:");
+    ESP_LOGI(TAG, "  通道数量: %d", rc_data->channel_count);
+    
+    // 遍历所有通道并计算占空比
+    for (int i = 0; i < rc_data->channel_count && i < 8; i++) {
+        // 将通道值(0-1000)转换为占空比百分比
+        float duty_cycle = (rc_data->channel_values[i] / 1000.0f) * 100.0f;
+        ESP_LOGI(TAG, "  通道%d: 值=%d, 占空比=%.1f%%", 
+                 i + 1, rc_data->channel_values[i], duty_cycle);
+    }
+}
+
+/**
  * @brief 传统的TCP任务函数（保持向后兼容）
  */
 void tcp_task(void) {
     ESP_LOGW(TAG, "使用传统TCP任务函数，建议使用事件驱动的TCP任务管理器");
     
     // 使用指定的服务器配置
-    const char *server_ip = "192.168.123.132";
+    const char *server_ip = "192.168.76.229";
     
     // 初始化心跳模块（使用默认端口7878）
     if (!tcp_client_hb_init(server_ip, 0)) {

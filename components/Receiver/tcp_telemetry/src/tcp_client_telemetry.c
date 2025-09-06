@@ -42,6 +42,7 @@ typedef struct {
 // ----------------- 全局变量 -----------------
 static tcp_client_telemetry_manager_t g_telemetry_client = {0};
 static bool g_telemetry_client_initialized = false;
+static remote_control_callback_t g_rc_callback = NULL;
 
 // 模拟遥测数据
 static tcp_client_telemetry_sim_data_t g_sim_telemetry = {
@@ -63,6 +64,7 @@ static void tcp_client_telemetry_update_stats_on_connect(void);
 static void tcp_client_telemetry_update_stats_on_disconnect(void);
 static int tcp_client_telemetry_find_frame_header(const uint8_t *buffer, int buffer_len);
 static void tcp_client_telemetry_task_function(void *pvParameters);
+static void parse_and_handle_control_frame(const uint8_t *payload, uint16_t payload_len);
 
 // ----------------- 内部函数实现 -----------------
 
@@ -113,6 +115,40 @@ static int tcp_client_telemetry_find_frame_header(const uint8_t *buffer, int buf
         }
     }
     return -1;
+}
+
+static void parse_and_handle_control_frame(const uint8_t *payload, uint16_t payload_len) {
+    if (!payload || payload_len < 1) {
+        ESP_LOGE(TAG, "无效的遥控命令负载");
+        return;
+    }
+
+    remote_control_data_t rc_data;
+    rc_data.channel_count = payload[0];
+
+    if (payload_len < (1 + rc_data.channel_count * 2)) {
+        ESP_LOGE(TAG, "遥控命令负载长度不足，期望长度: %d, 实际长度: %d", (1 + rc_data.channel_count * 2), payload_len);
+        return;
+    }
+
+    if (rc_data.channel_count > 8) {
+        ESP_LOGW(TAG, "通道数量 (%d) 超过最大支持数量 (8)", rc_data.channel_count);
+        rc_data.channel_count = 8;
+    }
+
+    for (int i = 0; i < rc_data.channel_count; i++) {
+        rc_data.channel_values[i] = (payload[1 + i * 2] << 8) | payload[2 + i * 2];
+    }
+
+    // 打印接收到的PWM占空比
+    for (int i = 0; i < rc_data.channel_count; i++) {
+        float duty_cycle = (rc_data.channel_values[i] / 1000.0f) * 100.0f;
+        ESP_LOGI(TAG, "通道 %d: 值 = %d, 占空比 = %.2f%%", i + 1, rc_data.channel_values[i], duty_cycle);
+    }
+
+    if (g_rc_callback) {
+        g_rc_callback(&rc_data);
+    }
 }
 
 static bool tcp_client_telemetry_connect_internal(void) {
@@ -518,7 +554,29 @@ bool tcp_client_telemetry_process_received_data(void) {
     if (header_pos >= 0) {
         // 找到帧头，尝试解析完整帧
         if (received_bytes - header_pos >= sizeof(protocol_header_t)) {
-            tcp_client_telemetry_print_received_frame(g_telemetry_client.recv_buffer + header_pos, received_bytes - header_pos);
+            const uint8_t *frame_start = g_telemetry_client.recv_buffer + header_pos;
+            protocol_header_t *header = (protocol_header_t *)frame_start;
+            
+            // 检查是否接收到完整帧 (头部 + 负载 + CRC)
+            uint16_t expected_frame_len = sizeof(protocol_header_t) + header->length - 1 + 2; // -1因为length包含frame_type
+            if (received_bytes - header_pos >= expected_frame_len) {
+                ESP_LOGI(TAG, "接收到完整帧，类型: 0x%02X, 长度: %d", header->frame_type, header->length);
+                
+                // 根据帧类型处理
+                if (header->frame_type == FRAME_TYPE_COMMAND) {
+                    // 处理命令帧
+                    const uint8_t *payload = frame_start + sizeof(protocol_header_t);
+                    uint16_t payload_len = header->length - 1; // -1因为length包含frame_type字段
+                    ESP_LOGI(TAG, "处理命令帧，负载长度: %d", payload_len);
+                    parse_and_handle_control_frame(payload, payload_len);
+                } else {
+                    ESP_LOGI(TAG, "接收到其他类型帧: 0x%02X", header->frame_type);
+                }
+                
+                tcp_client_telemetry_print_received_frame(frame_start, received_bytes - header_pos);
+            } else {
+                ESP_LOGW(TAG, "帧不完整，期望长度: %d, 实际长度: %d", expected_frame_len, received_bytes - header_pos);
+            }
         }
     }
     
@@ -581,4 +639,9 @@ void tcp_client_telemetry_print_received_frame(const uint8_t *buffer, uint16_t b
         uint16_t crc = buffer[buffer[2] + 4] | (buffer[buffer[2] + 5] << 8);
         ESP_LOGI(TAG, "CRC: 0x%04X", crc);
     }
+}
+
+void tcp_client_telemetry_register_rc_callback(remote_control_callback_t callback) {
+    g_rc_callback = callback;
+    ESP_LOGI(TAG, "遥控命令回调函数已注册");
 }
