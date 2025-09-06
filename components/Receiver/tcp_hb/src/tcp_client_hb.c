@@ -166,7 +166,7 @@ static bool tcp_client_hb_connect_internal(void) {
     g_hb_client.socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (g_hb_client.socket_fd < 0) {
         ESP_LOGE(TAG, "创建套接字失败: %s", strerror(errno));
-        tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_ERROR);
+        tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_RECONNECTING);
         return false;
     }
 
@@ -210,7 +210,7 @@ static bool tcp_client_hb_connect_internal(void) {
         ESP_LOGE(TAG, "无效的IP地址: %s", g_hb_client.config.server_ip);
         close(g_hb_client.socket_fd);
         g_hb_client.socket_fd = -1;
-        tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_ERROR);
+        tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_RECONNECTING);
         return false;
     }
 
@@ -240,27 +240,27 @@ static bool tcp_client_hb_connect_internal(void) {
                     ESP_LOGE(TAG, "连接失败: %s", strerror(error ? error : errno));
                     close(g_hb_client.socket_fd);
                     g_hb_client.socket_fd = -1;
-                    tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_ERROR);
+                    tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_RECONNECTING);
                     return false;
                 }
             } else if (select_result == 0) {
                 ESP_LOGE(TAG, "连接超时");
                 close(g_hb_client.socket_fd);
                 g_hb_client.socket_fd = -1;
-                tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_ERROR);
+                tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_RECONNECTING);
                 return false;
             } else {
                 ESP_LOGE(TAG, "select失败: %s", strerror(errno));
                 close(g_hb_client.socket_fd);
                 g_hb_client.socket_fd = -1;
-                tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_ERROR);
+                tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_RECONNECTING);
                 return false;
             }
         } else {
             ESP_LOGE(TAG, "连接失败: %s", strerror(errno));
             close(g_hb_client.socket_fd);
             g_hb_client.socket_fd = -1;
-            tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_ERROR);
+            tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_RECONNECTING);
             return false;
         }
     }
@@ -270,6 +270,19 @@ static bool tcp_client_hb_connect_internal(void) {
 
     tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_CONNECTED);
     ESP_LOGI(TAG, "连接成功");
+
+    // 连接成功后，立即发送第一个心跳包
+    if (!tcp_client_hb_send_packet()) {
+        ESP_LOGW(TAG, "发送初始心跳包失败");
+    }
+
+    // 连接成功后，启动心跳定时器，停止重连定时器
+    if (g_hb_client.reconnect_timer) {
+        xTimerStop(g_hb_client.reconnect_timer, 0);
+    }
+    if (g_hb_client.heartbeat_timer) {
+        xTimerStart(g_hb_client.heartbeat_timer, 0);
+    }
     
     return true;
 }
@@ -290,8 +303,10 @@ static void tcp_client_hb_timer_callback(TimerHandle_t xTimer) {
         if (!tcp_client_hb_send_packet()) {
             ESP_LOGW(TAG, "心跳发送失败，可能需要重连");
             if (g_hb_client.config.auto_reconnect_enabled) {
+                tcp_client_hb_disconnect_internal(); // 先断开连接
                 tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_RECONNECTING);
-                tcp_client_hb_disconnect_internal();
+                xTimerStop(g_hb_client.heartbeat_timer, 0); // 停止心跳定时器
+                xTimerStart(g_hb_client.reconnect_timer, 0); // 启动重连定时器
             }
         }
     }
@@ -301,6 +316,15 @@ static void tcp_client_hb_reconnect_timer_callback(TimerHandle_t xTimer) {
     (void)xTimer;
     
     if (g_hb_client.state == TCP_CLIENT_HB_STATE_RECONNECTING) {
+        ESP_LOGI(TAG, "尝试重连...");
+        g_hb_client.stats.reconnection_count++;
+        
+        if (tcp_client_hb_connect_internal()) {
+            // 重连成功
+            ESP_LOGI(TAG, "重连成功");
+        } else {
+            ESP_LOGW(TAG, "重连失败，等待下次重试");
+        }
     }
 }
 
@@ -310,20 +334,6 @@ static void tcp_client_hb_task_function(void *pvParameters) {
     ESP_LOGI(TAG, "心跳任务启动");
     
     while (g_hb_client.is_running) {
-        if (g_hb_client.state == TCP_CLIENT_HB_STATE_RECONNECTING) {
-            ESP_LOGI(TAG, "尝试重连...");
-            g_hb_client.stats.reconnection_count++;
-            
-            if (tcp_client_hb_connect_internal()) {
-                // 重连成功，停止重连定时器，启动心跳定时器
-                xTimerStop(g_hb_client.reconnect_timer, 0);
-                xTimerStart(g_hb_client.heartbeat_timer, 0);
-                ESP_LOGI(TAG, "重连成功");
-            } else {
-                ESP_LOGW(TAG, "重连失败，等待下次重试");
-            }
-        }
-        
         // 检查连接健康状态
         if (g_hb_client.state == TCP_CLIENT_HB_STATE_CONNECTED) {
             uint64_t current_time = tcp_client_hb_get_timestamp_ms();
@@ -331,8 +341,9 @@ static void tcp_client_hb_task_function(void *pvParameters) {
                 (current_time - g_hb_client.stats.last_heartbeat_time) > g_hb_client.config.heartbeat_timeout_ms) {
                 ESP_LOGW(TAG, "心跳超时，触发重连");
                 if (g_hb_client.config.auto_reconnect_enabled) {
-                    tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_RECONNECTING);
                     tcp_client_hb_disconnect_internal();
+                    tcp_client_hb_set_state(TCP_CLIENT_HB_STATE_RECONNECTING);
+                    xTimerStop(g_hb_client.heartbeat_timer, 0);
                     xTimerStart(g_hb_client.reconnect_timer, 0);
                 }
             }
@@ -532,6 +543,8 @@ bool tcp_client_hb_reconnect_now(void) {
         return false;
     }
     
+    xTimerStop(g_hb_client.heartbeat_timer, 0);
+    xTimerStop(g_hb_client.reconnect_timer, 0);
     tcp_client_hb_disconnect_internal();
     return tcp_client_hb_connect_internal();
 }

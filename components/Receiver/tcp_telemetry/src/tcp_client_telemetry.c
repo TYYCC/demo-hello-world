@@ -128,7 +128,7 @@ static bool tcp_client_telemetry_connect_internal(void) {
     g_telemetry_client.socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (g_telemetry_client.socket_fd < 0) {
         ESP_LOGE(TAG, "创建套接字失败: %s", strerror(errno));
-        tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_ERROR);
+        tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_DISCONNECTED);
         return false;
     }
 
@@ -172,7 +172,7 @@ static bool tcp_client_telemetry_connect_internal(void) {
         ESP_LOGE(TAG, "无效的IP地址: %s", g_telemetry_client.config.server_ip);
         close(g_telemetry_client.socket_fd);
         g_telemetry_client.socket_fd = -1;
-        tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_ERROR);
+        tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_DISCONNECTED);
         return false;
     }
 
@@ -202,27 +202,27 @@ static bool tcp_client_telemetry_connect_internal(void) {
                     ESP_LOGE(TAG, "连接失败: %s", strerror(error ? error : errno));
                     close(g_telemetry_client.socket_fd);
                     g_telemetry_client.socket_fd = -1;
-                    tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_ERROR);
+                    tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_DISCONNECTED);
                     return false;
                 }
             } else if (select_result == 0) {
                 ESP_LOGE(TAG, "连接超时");
                 close(g_telemetry_client.socket_fd);
                 g_telemetry_client.socket_fd = -1;
-                tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_ERROR);
+                tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_DISCONNECTED);
                 return false;
             } else {
                 ESP_LOGE(TAG, "select失败: %s", strerror(errno));
                 close(g_telemetry_client.socket_fd);
                 g_telemetry_client.socket_fd = -1;
-                tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_ERROR);
+                tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_DISCONNECTED);
                 return false;
             }
         } else {
             ESP_LOGE(TAG, "连接失败: %s", strerror(errno));
             close(g_telemetry_client.socket_fd);
             g_telemetry_client.socket_fd = -1;
-            tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_ERROR);
+            tcp_client_telemetry_set_state(TCP_CLIENT_TELEMETRY_STATE_DISCONNECTED);
             return false;
         }
     }
@@ -507,6 +507,7 @@ bool tcp_client_telemetry_process_received_data(void) {
     
     if (received_bytes == 0) {
         ESP_LOGW(TAG, "连接被对方关闭");
+        tcp_client_telemetry_disconnect_internal();
         return false;
     }
     
