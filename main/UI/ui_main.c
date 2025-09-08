@@ -1,3 +1,19 @@
+/*******************************************************************************
+ * @file           : {fileName}
+ * @brief          :
+ * @author         : {author}
+ * @date           : {createTime}
+ * @version        : 1.0
+ ******************************************************************************/
+/*
+ * Author: tidycraze 2595256284@qq.com
+ * Date: 2025-09-01 13:24:54
+ * LastEditors: tidycraze 2595256284@qq.com
+ * LastEditTime: 2025-09-08 15:45:09
+ * FilePath: \demo-hello-world\main\UI\ui_main.c
+ * Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置:
+ * https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 /**
  * @file ui_main.c
  * @brief 主界面UI
@@ -6,28 +22,28 @@
  */
 
 #include "../app/game/game.h"
-#include "my_font.h"
 #include "background_manager.h"
-#include "status_bar_manager.h"
 #include "color.h"
 #include "esp_log.h"
 #include "font/lv_font.h"
+#include "my_font.h"
+#include "status_bar_manager.h"
 #include "theme_manager.h"
 #include "ui.h"
 #include "ui_calibration.h"
 #include "ui_image_transfer.h"
 #include "ui_serial_display.h"
-#include "ui_test.h"
-#include "ui_telemetry.h" // 添加遥测UI头文件
 #include "ui_state_manager.h" // 添加状态管理器头文件
+#include "ui_telemetry.h"     // 添加遥测UI头文件
+#include "ui_test.h"
 #include "wifi_image_transfer.h"
 #include "wifi_manager.h"
+
 // audio receiver is declared in ui.h (ui_audio_receiver_create)
 
-// 全局变量保存时间标签、电池标签和WiFi标签
+// 全局变量保存时间标签和电池标签
 static lv_obj_t* g_time_label = NULL;
 static lv_obj_t* g_battery_label = NULL;
-static lv_obj_t* g_wifi_label = NULL;
 
 // 全局变量保存菜单容器和当前选中状态
 static lv_obj_t* g_menu_container = NULL;
@@ -131,7 +147,6 @@ static void settings_cb(void) {
         // 重置全局UI指针
         g_time_label = NULL;
         g_battery_label = NULL;
-        g_wifi_label = NULL;
         g_menu_container = NULL;
 
         lv_obj_clean(screen);       // 清空当前屏幕
@@ -155,7 +170,6 @@ static void game_cb(void) {
         // 重置全局UI指针
         g_time_label = NULL;
         g_battery_label = NULL;
-        g_wifi_label = NULL;
         g_menu_container = NULL;
 
         lv_obj_clean(screen);        // 清空当前屏幕
@@ -179,7 +193,6 @@ static void image_transfer_cb(void) {
         // 重置全局UI指针
         g_time_label = NULL;
         g_battery_label = NULL;
-        g_wifi_label = NULL;
         g_menu_container = NULL;
 
         lv_obj_clean(screen);             // 清空当前屏幕
@@ -211,7 +224,6 @@ static void serial_display_cb(void) {
         // 重置全局UI指针
         g_time_label = NULL;
         g_battery_label = NULL;
-        g_wifi_label = NULL;
         g_menu_container = NULL;
 
         lv_obj_clean(screen);             // 清空当前屏幕
@@ -235,7 +247,6 @@ static void calibration_cb(void) {
         // 重置全局UI指针
         g_time_label = NULL;
         g_battery_label = NULL;
-        g_wifi_label = NULL;
         g_menu_container = NULL;
 
         lv_obj_clean(screen);          // 清空当前屏幕
@@ -267,7 +278,6 @@ static void test_cb(void) {
         // 重置全局UI指针
         g_time_label = NULL;
         g_battery_label = NULL;
-        g_wifi_label = NULL;
         g_menu_container = NULL;
 
         lv_obj_clean(screen);   // 清空当前屏幕
@@ -299,10 +309,9 @@ static void telemetry_cb(void) {
         // 重置全局UI指针
         g_time_label = NULL;
         g_battery_label = NULL;
-        g_wifi_label = NULL;
         g_menu_container = NULL;
 
-        lv_obj_clean(screen);               // 清空当前屏幕
+        lv_obj_clean(screen);        // 清空当前屏幕
         ui_telemetry_create(screen); // 加载遥测界面
     }
 }
@@ -326,19 +335,14 @@ static menu_item_t menu_items[] = {
 };
 
 static menu_item_t menu_items_zh[] = {
-    {"遥测", telemetry_cb},
-    {"图传", image_transfer_cb},
-    {"串口", serial_display_cb},
-    {"校准", calibration_cb},
-    {"游戏", game_cb},
-    {"设置", settings_cb},
-    {"测试", test_cb}
-};
+    {"遥测", telemetry_cb},   {"图传", image_transfer_cb}, {"串口", serial_display_cb},
+    {"校准", calibration_cb}, {"游戏", game_cb},           {"设置", settings_cb},
+    {"测试", test_cb}};
 
 static void btn_event_cb(lv_event_t* e) {
     lv_obj_t* btn = lv_event_get_target(e);
     menu_item_cb_t cb = (menu_item_cb_t)lv_event_get_user_data(e);
-    
+
     // 获取按钮在菜单中的索引
     if (g_menu_container) {
         uint32_t child_count = lv_obj_get_child_cnt(g_menu_container);
@@ -349,18 +353,21 @@ static void btn_event_cb(lv_event_t* e) {
             }
         }
     }
-    
+
     if (cb)
         cb();
 }
 
 void ui_main_menu_create(lv_obj_t* parent) {
+    // 初始化状态栏管理器
+    status_bar_manager_init();
+
     // 标记当前屏幕类型
     ui_state_manager_save_current_screen(UI_SCREEN_MAIN_MENU);
-    
+
     // 检查是否需要恢复状态
     ui_main_menu_state_t* saved_state = ui_state_manager_get_main_menu_state();
-    
+
     // 应用当前主题到屏幕
     theme_apply_to_screen(parent);
 
@@ -379,13 +386,6 @@ void ui_main_menu_create(lv_obj_t* parent) {
     lv_obj_set_style_text_color(g_time_label, lv_color_hex(0x000000), 0); // 黑色
     lv_obj_align(g_time_label, LV_ALIGN_LEFT_MID, 6, 0);
     lv_label_set_text(g_time_label, "00:00");
-
-    // ==== WiFi符号 ====
-    g_wifi_label = lv_label_create(status_bar);
-    lv_obj_set_style_text_font(g_wifi_label, &Mysymbol, 0);               // 使用自定义字体
-    lv_obj_set_style_text_color(g_wifi_label, lv_color_hex(0x000000), 0); // 黑色
-    lv_label_set_text(g_wifi_label, MYSYMBOL_NO_WIFI);                    // 默认显示未连接
-    lv_obj_align(g_wifi_label, LV_ALIGN_RIGHT_MID, -45, 0);               // 在电池左边
 
     // ==== 电池图标（外壳 + 小凸起 + 电量文字） ====
     // 电池外壳
@@ -434,9 +434,11 @@ void ui_main_menu_create(lv_obj_t* parent) {
 
     // 根据当前语言选择菜单项
     ui_language_t current_language = ui_get_current_language();
-    menu_item_t* current_menu_items = (current_language == LANG_CHINESE) ? menu_items_zh : menu_items;
-    int num_items = (current_language == LANG_CHINESE) ? (sizeof(menu_items_zh) / sizeof(menu_item_t))
-                                                       : (sizeof(menu_items) / sizeof(menu_item_t));
+    menu_item_t* current_menu_items =
+        (current_language == LANG_CHINESE) ? menu_items_zh : menu_items;
+    int num_items = (current_language == LANG_CHINESE)
+                        ? (sizeof(menu_items_zh) / sizeof(menu_item_t))
+                        : (sizeof(menu_items) / sizeof(menu_item_t));
 
     // 创建菜单按钮容器
     g_menu_container = lv_obj_create(parent);
@@ -518,16 +520,17 @@ void ui_main_menu_create(lv_obj_t* parent) {
     if (saved_state) {
         // 恢复选中的菜单项索引
         g_current_selected_index = saved_state->selected_index;
-        
+
         // 恢复滚动位置
         lv_obj_scroll_to_y(g_menu_container, saved_state->scroll_position, LV_ANIM_OFF);
-        
-        ESP_LOGI("UI_MAIN", "Main menu state restored: selected=%d, scroll=%d", 
+
+        ESP_LOGI("UI_MAIN", "Main menu state restored: selected=%d, scroll=%d",
                  saved_state->selected_index, saved_state->scroll_position);
-        
+
         // 可选：高亮显示之前选中的菜单项
         if (saved_state->selected_index >= 0 && saved_state->selected_index < num_items) {
-            lv_obj_t* selected_btn = lv_obj_get_child(g_menu_container, saved_state->selected_index);
+            lv_obj_t* selected_btn =
+                lv_obj_get_child(g_menu_container, saved_state->selected_index);
             if (selected_btn) {
                 // 可以添加一些视觉效果来表示这是之前选中的项目
                 // 例如：稍微改变按钮的透明度或边框

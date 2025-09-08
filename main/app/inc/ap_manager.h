@@ -1,10 +1,19 @@
+/*
+ * AP管理器已被删除，所有AP相关功能已被移除
+ * 如果需要恢复AP功能，请取消注释此文件内容
+ * ===================================================
+ */
+
+// AP管理器已被禁用，所有AP相关功能已被移除
+#if 0
+
 #ifndef AP_MANAGER_H
 #define AP_MANAGER_H
 
 #include "esp_err.h"
 #include "esp_wifi.h"
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -92,3 +101,5 @@ esp_err_t ap_manager_generate_default_ssid(char* ssid_buf, size_t max_len);
 #endif
 
 #endif // AP_MANAGER_H
+
+#endif /* AP manager disabled */

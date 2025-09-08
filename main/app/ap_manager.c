@@ -1,13 +1,22 @@
+/*
+ * AP管理器已被删除，所有AP相关功能已被移除
+ * 如果需要恢复AP功能，请取消注释此文件内容
+ * ===================================================
+ */
+
+// 整个文件已被注释掉
+#if 0
+
 #include "ap_manager.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "esp_wifi_types.h"
-#include "nvs.h"
-#include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 #include <string.h>
 
 static const char* TAG = "AP_MANAGER";
@@ -36,7 +45,8 @@ static EventGroupHandle_t s_ap_event_group;
 #define AP_STOPPED_BIT BIT1
 
 // 前向声明
-static void ap_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
+static void ap_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
+                             void* event_data);
 static esp_err_t load_password_from_nvs(char* password, size_t max_len);
 static esp_err_t save_password_to_nvs(const char* password);
 
@@ -47,7 +57,7 @@ esp_err_t ap_manager_init(ap_event_cb_t event_cb) {
     }
 
     g_event_cb = event_cb;
-    
+
     // 初始化AP信息结构体
     memset(&g_ap_info, 0, sizeof(g_ap_info));
     g_ap_info.state = AP_STATE_DISABLED;
@@ -77,7 +87,8 @@ esp_err_t ap_manager_init(ap_event_cb_t event_cb) {
     }
 
     // 注册WiFi事件处理器
-    ret = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &ap_event_handler, NULL, NULL);
+    ret = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &ap_event_handler, NULL,
+                                              NULL);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register WiFi event handler");
         vEventGroupDelete(s_ap_event_group);
@@ -103,7 +114,7 @@ esp_err_t ap_manager_start(void) {
     }
 
     ESP_LOGI(TAG, "Starting AP: %s", g_ap_info.ssid);
-    
+
     // 创建AP网络接口（如果还没有创建）
     if (!g_ap_netif) {
         g_ap_netif = esp_netif_create_default_wifi_ap();
@@ -115,16 +126,18 @@ esp_err_t ap_manager_start(void) {
 
     // 配置WiFi
     wifi_config_t wifi_config = {
-        .ap = {
-            .ssid_len = strlen(g_ap_info.ssid),
-            .channel = g_ap_info.channel,
-            .max_connection = g_ap_info.max_connections,
-            .authmode = WIFI_AUTH_WPA2_PSK,
-            .beacon_interval = AP_BEACON_INTERVAL,
-            .pmf_cfg = {
-                .required = false,
+        .ap =
+            {
+                .ssid_len = strlen(g_ap_info.ssid),
+                .channel = g_ap_info.channel,
+                .max_connection = g_ap_info.max_connections,
+                .authmode = WIFI_AUTH_WPA2_PSK,
+                .beacon_interval = AP_BEACON_INTERVAL,
+                .pmf_cfg =
+                    {
+                        .required = false,
+                    },
             },
-        },
     };
 
     strncpy((char*)wifi_config.ap.ssid, g_ap_info.ssid, sizeof(wifi_config.ap.ssid));
@@ -189,13 +202,16 @@ esp_err_t ap_manager_stop(void) {
         g_event_cb(AP_STATE_DISABLED, "AP stopped");
     }
 
+    // 通知状态栏管理器AP已停止
+    extern esp_err_t status_bar_manager_set_ap_status(bool is_running);
+    status_bar_manager_set_ap_status(false);
+    ESP_LOGI(TAG, "AP状态已更新为停止");
+
     ESP_LOGI(TAG, "AP stopped");
     return ESP_OK;
 }
 
-ap_info_t ap_manager_get_info(void) {
-    return g_ap_info;
-}
+ap_info_t ap_manager_get_info(void) { return g_ap_info; }
 
 esp_err_t ap_manager_set_password(const char* password) {
     if (!password) {
@@ -217,7 +233,7 @@ esp_err_t ap_manager_set_password(const char* password) {
     }
 
     strcpy(g_ap_info.password, password);
-    
+
     // 保存到NVS
     esp_err_t ret = save_password_to_nvs(password);
     if (ret != ESP_OK) {
@@ -238,9 +254,7 @@ esp_err_t ap_manager_get_password(char* password, size_t max_len) {
     return ESP_OK;
 }
 
-bool ap_manager_is_running(void) {
-    return g_ap_started && (g_ap_info.state == AP_STATE_RUNNING);
-}
+bool ap_manager_is_running(void) { return g_ap_started && (g_ap_info.state == AP_STATE_RUNNING); }
 
 esp_err_t ap_manager_generate_default_ssid(char* ssid_buf, size_t max_len) {
     if (!ssid_buf || max_len < 32) {
@@ -259,16 +273,22 @@ esp_err_t ap_manager_generate_default_ssid(char* ssid_buf, size_t max_len) {
 }
 
 // 私有函数实现
-static void ap_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+static void ap_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
+                             void* event_data) {
     if (event_base == WIFI_EVENT) {
         switch (event_id) {
         case WIFI_EVENT_AP_START:
-            ESP_LOGI(TAG, "AP started successfully");
+            ESP_LOGI(TAG, "AP started successfully (ap_manager)");
             g_ap_info.state = AP_STATE_RUNNING;
             xEventGroupSetBits(s_ap_event_group, AP_STARTED_BIT);
             if (g_event_cb) {
                 g_event_cb(AP_STATE_RUNNING, "AP running");
             }
+
+            // 通知状态栏管理器AP已启动
+            extern esp_err_t status_bar_manager_set_ap_status(bool is_running);
+            status_bar_manager_set_ap_status(true);
+            ESP_LOGI(TAG, "AP状态已更新为运行中 (ap_manager)");
             break;
 
         case WIFI_EVENT_AP_STOP:
@@ -279,13 +299,18 @@ static void ap_event_handler(void* arg, esp_event_base_t event_base, int32_t eve
             if (g_event_cb) {
                 g_event_cb(AP_STATE_DISABLED, "AP stopped");
             }
+
+            // 通知状态栏管理器AP已停止
+            extern esp_err_t status_bar_manager_set_ap_status(bool is_running);
+            status_bar_manager_set_ap_status(false);
+            ESP_LOGI(TAG, "AP状态已更新为停止 (ap_manager)");
             break;
 
         case WIFI_EVENT_AP_STACONNECTED: {
             wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*)event_data;
-            ESP_LOGI(TAG, "Station %02x:%02x:%02x:%02x:%02x:%02x connected, AID=%d", 
-                     event->mac[0], event->mac[1], event->mac[2], 
-                     event->mac[3], event->mac[4], event->mac[5], event->aid);
+            ESP_LOGI(TAG, "Station %02x:%02x:%02x:%02x:%02x:%02x connected, AID=%d", event->mac[0],
+                     event->mac[1], event->mac[2], event->mac[3], event->mac[4], event->mac[5],
+                     event->aid);
             g_ap_info.connected_stations++;
             if (g_event_cb) {
                 g_event_cb(AP_STATE_RUNNING, "Station connected");
@@ -295,9 +320,9 @@ static void ap_event_handler(void* arg, esp_event_base_t event_base, int32_t eve
 
         case WIFI_EVENT_AP_STADISCONNECTED: {
             wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*)event_data;
-            ESP_LOGI(TAG, "Station %02x:%02x:%02x:%02x:%02x:%02x disconnected, AID=%d", 
-                     event->mac[0], event->mac[1], event->mac[2], 
-                     event->mac[3], event->mac[4], event->mac[5], event->aid);
+            ESP_LOGI(TAG, "Station %02x:%02x:%02x:%02x:%02x:%02x disconnected, AID=%d",
+                     event->mac[0], event->mac[1], event->mac[2], event->mac[3], event->mac[4],
+                     event->mac[5], event->aid);
             if (g_ap_info.connected_stations > 0) {
                 g_ap_info.connected_stations--;
             }
@@ -350,3 +375,5 @@ static esp_err_t save_password_to_nvs(const char* password) {
 
     return ret;
 }
+
+#endif /* AP manager disabled */

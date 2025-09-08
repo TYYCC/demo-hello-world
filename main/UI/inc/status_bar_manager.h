@@ -10,8 +10,8 @@
 #ifndef STATUS_BAR_MANAGER_H
 #define STATUS_BAR_MANAGER_H
 
-#include "lvgl.h"
 #include "esp_err.h"
+#include "lvgl.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -20,12 +20,13 @@ extern "C" {
 
 // 状态栏图标类型
 typedef enum {
-    STATUS_ICON_WIFI_NONE,        // 无WiFi信号
-    STATUS_ICON_WIFI_LOW,         // 低WiFi信号
-    STATUS_ICON_WIFI_MEDIUM,      // 中等WiFi信号  
-    STATUS_ICON_WIFI_HIGH,        // 高WiFi信号
-    STATUS_ICON_AP,               // AP模式
-    STATUS_ICON_MUSIC,            // 音频接收模式
+    STATUS_ICON_WIFI_NONE,          // 无WiFi信号
+    STATUS_ICON_WIFI_LOW,           // 低WiFi信号
+    STATUS_ICON_WIFI_MEDIUM,        // 中等WiFi信号
+    STATUS_ICON_WIFI_HIGH,          // 高WiFi信号
+    STATUS_ICON_MUSIC,              // 音频接收模式
+    STATUS_ICON_PLUGS_DISCONNECTED, // TCP客户端断开
+    STATUS_ICON_PLUGS_CONNECTED,    // TCP客户端连接且有心跳
     STATUS_ICON_MAX
 } status_icon_type_t;
 
@@ -34,7 +35,7 @@ typedef struct {
     status_icon_type_t type;
     bool visible;
     lv_obj_t* label;
-    int x_offset;  // 相对于右边电池的偏移量
+    int x_offset; // 相对于右边电池的偏移量
 } status_icon_t;
 
 // 状态栏更新回调函数类型
@@ -52,7 +53,8 @@ esp_err_t status_bar_manager_init(void);
  * @param update_cb 状态更新回调函数
  * @return esp_err_t
  */
-esp_err_t status_bar_manager_set_container(lv_obj_t* status_bar_container, status_bar_update_cb_t update_cb);
+esp_err_t status_bar_manager_set_container(lv_obj_t* status_bar_container,
+                                           status_bar_update_cb_t update_cb);
 
 /**
  * @brief 设置时间和电池标签对象（保持现有布局）
@@ -78,18 +80,18 @@ esp_err_t status_bar_manager_show_icon(status_icon_type_t icon_type, bool show);
 esp_err_t status_bar_manager_set_wifi_signal(int signal_strength);
 
 /**
- * @brief 设置AP模式状态
- * @param is_running AP是否运行
- * @return esp_err_t
- */
-esp_err_t status_bar_manager_set_ap_status(bool is_running);
-
-/**
  * @brief 设置音频接收状态
  * @param is_receiving 是否正在接收音频
  * @return esp_err_t
  */
 esp_err_t status_bar_manager_set_audio_status(bool is_receiving);
+
+/**
+ * @brief 设置TCP客户端连接状态
+ * @param has_client_connected 是否有客户端连接且有心跳
+ * @return esp_err_t
+ */
+esp_err_t status_bar_manager_set_tcp_client_status(bool has_client_connected);
 
 /**
  * @brief 启动状态栏更新任务

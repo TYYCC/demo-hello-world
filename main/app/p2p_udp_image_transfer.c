@@ -76,19 +76,24 @@ static esp_err_t udp_socket_init(void);
 static void udp_rx_task(void* pvParameters);
 static void jpeg_decode_task(void* pvParameters);
 // static void udp_tx_task(void* pvParameters);
-static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
-static void ip_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
+static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
+                               void* event_data);
+static void ip_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
+                             void* event_data);
 static void set_connection_state(p2p_connection_state_t state, const char* info);
 static uint32_t get_timestamp_ms(void);
 static uint16_t calculate_checksum(const uint8_t* data, uint16_t len);
-static esp_err_t process_received_packet(const uint8_t* packet_data, int len, struct sockaddr_in* sender_addr);
-// static esp_err_t send_ack_packet(uint32_t frame_id, uint16_t packet_id, struct sockaddr_in* dest_addr);
-// static esp_err_t send_nack_packet(uint32_t frame_id, uint16_t packet_id, struct sockaddr_in* dest_addr);
+static esp_err_t process_received_packet(const uint8_t* packet_data, int len,
+                                         struct sockaddr_in* sender_addr);
+// static esp_err_t send_ack_packet(uint32_t frame_id, uint16_t packet_id, struct sockaddr_in*
+// dest_addr); static esp_err_t send_nack_packet(uint32_t frame_id, uint16_t packet_id, struct
+// sockaddr_in* dest_addr);
 static void cleanup_current_frame(void);
 static bool is_frame_complete(void);
 static esp_err_t decode_frame_data(uint8_t* buffer, uint32_t size, uint32_t frame_id);
 
-esp_err_t p2p_udp_image_transfer_init(p2p_connection_mode_t mode, p2p_udp_image_callback_t image_callback,
+esp_err_t p2p_udp_image_transfer_init(p2p_connection_mode_t mode,
+                                      p2p_udp_image_callback_t image_callback,
                                       p2p_udp_status_callback_t status_callback) {
     if (g_initialized) {
         ESP_LOGW(TAG, "Already initialized");
@@ -110,10 +115,10 @@ esp_err_t p2p_udp_image_transfer_init(p2p_connection_mode_t mode, p2p_udp_image_
         return ESP_ERR_NO_MEM;
     }
 
-    // 初始化网络接口 - This should be called only once in the application's lifecycle (e.g. in app_main).
-    // It's assumed to be called elsewhere. Removing from here to prevent re-init issues.
+    // 初始化网络接口 - This should be called only once in the application's lifecycle (e.g. in
+    // app_main). It's assumed to be called elsewhere. Removing from here to prevent re-init issues.
     // ESP_ERROR_CHECK(esp_netif_init());
-    
+
     // 检查事件循环是否已经存在，避免重复创建
     esp_err_t ret = esp_event_loop_create_default();
     if (ret == ESP_ERR_INVALID_STATE) {
@@ -123,11 +128,14 @@ esp_err_t p2p_udp_image_transfer_init(p2p_connection_mode_t mode, p2p_udp_image_
     }
 
     // 注册事件处理器
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, &g_wifi_event_instance));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, &ip_event_handler, NULL, &g_ip_event_instance));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
+        WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, &g_wifi_event_instance));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
+        IP_EVENT, ESP_EVENT_ANY_ID, &ip_event_handler, NULL, &g_ip_event_instance));
 
     g_initialized = true;
-    ESP_LOGI(TAG, "P2P UDP image transfer initialized in %s mode", mode == P2P_MODE_AP ? "AP" : "STA");
+    ESP_LOGI(TAG, "P2P UDP image transfer initialized in %s mode",
+             mode == P2P_MODE_AP ? "AP" : "STA");
 
     return ESP_OK;
 }
@@ -156,7 +164,8 @@ esp_err_t p2p_udp_image_transfer_start(void) {
     }
 
     // 创建解码任务，优先级略高于网络任务
-    if (xTaskCreate(jpeg_decode_task, "jpeg_decode", 4096, NULL, 6, &g_decode_task_handle) != pdPASS) {
+    if (xTaskCreate(jpeg_decode_task, "jpeg_decode", 4096, NULL, 6, &g_decode_task_handle) !=
+        pdPASS) {
         ESP_LOGE(TAG, "Failed to create decode task");
         vTaskDelete(g_rx_task_handle);
         g_rx_task_handle = NULL;
@@ -195,7 +204,7 @@ void p2p_udp_image_transfer_stop(void) {
         vTaskDelete(g_decode_task_handle);
         g_decode_task_handle = NULL;
     }
-    
+
     // 关闭socket, 这将解除recvfrom的阻塞
     if (g_udp_socket >= 0) {
         shutdown(g_udp_socket, SHUT_RDWR);
@@ -249,8 +258,8 @@ static esp_err_t wifi_init_p2p(void) {
         // 生成唯一的SSID
         uint8_t mac[6];
         esp_wifi_get_mac(WIFI_IF_AP, mac);
-        snprintf((char*)wifi_config.ap.ssid, sizeof(wifi_config.ap.ssid), "%s%02X%02X", P2P_WIFI_SSID_PREFIX, mac[4],
-                 mac[5]);
+        snprintf((char*)wifi_config.ap.ssid, sizeof(wifi_config.ap.ssid), "%s%02X%02X",
+                 P2P_WIFI_SSID_PREFIX, mac[4], mac[5]);
 
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
         ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
@@ -258,6 +267,7 @@ static esp_err_t wifi_init_p2p(void) {
 
         set_connection_state(P2P_STATE_AP_STARTING, "Starting AP");
         ESP_LOGI(TAG, "Wi-Fi AP started: %s", wifi_config.ap.ssid);
+
     } else {
         // STA模式配置 - 使用已存在的网络接口
         g_netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -318,8 +328,8 @@ static void udp_rx_task(void* pvParameters) {
     ESP_LOGI(TAG, "UDP RX task started");
 
     while (g_running) {
-        int len =
-            recvfrom(g_udp_socket, rx_buffer, P2P_UDP_MAX_PACKET_SIZE, 0, (struct sockaddr*)&sender_addr, &addr_len);
+        int len = recvfrom(g_udp_socket, rx_buffer, P2P_UDP_MAX_PACKET_SIZE, 0,
+                           (struct sockaddr*)&sender_addr, &addr_len);
 
         if (len > 0) {
             g_rx_packets++;
@@ -402,7 +412,8 @@ esp_err_t p2p_udp_send_image(const uint8_t* jpeg_data, uint32_t jpeg_size) {
 
         // 计算当前包的数据大小
         uint32_t offset = packet_id * payload_size;
-        uint16_t current_data_size = (offset + payload_size > jpeg_size) ? (jpeg_size - offset) : payload_size;
+        uint16_t current_data_size = (offset + payload_size > jpeg_size) ? (jpeg_size - offset) :
+payload_size;
 
         // 填充包头
         memset(header, 0, sizeof(p2p_udp_packet_header_t));
@@ -418,14 +429,16 @@ esp_err_t p2p_udp_send_image(const uint8_t* jpeg_data, uint32_t jpeg_size) {
         header->timestamp = get_timestamp_ms();
 
         // 复制数据
-        memcpy(packet_buffer + sizeof(p2p_udp_packet_header_t), jpeg_data + offset, current_data_size);
+        memcpy(packet_buffer + sizeof(p2p_udp_packet_header_t), jpeg_data + offset,
+current_data_size);
 
         // 计算校验和
-        header->checksum = calculate_checksum(packet_buffer + sizeof(p2p_udp_packet_header_t), current_data_size);
+        header->checksum = calculate_checksum(packet_buffer + sizeof(p2p_udp_packet_header_t),
+current_data_size);
 
         // 发送数据包
-        int sent_len = sendto(g_udp_socket, packet_buffer, sizeof(p2p_udp_packet_header_t) + current_data_size, 0,
-                              (struct sockaddr*)&broadcast_addr, sizeof(broadcast_addr));
+        int sent_len = sendto(g_udp_socket, packet_buffer, sizeof(p2p_udp_packet_header_t) +
+current_data_size, 0, (struct sockaddr*)&broadcast_addr, sizeof(broadcast_addr));
 
         if (sent_len < 0) {
             ESP_LOGE(TAG, "Failed to send packet %d: errno %d", packet_id, errno);
@@ -442,7 +455,8 @@ esp_err_t p2p_udp_send_image(const uint8_t* jpeg_data, uint32_t jpeg_size) {
     return ESP_OK;
 }
 */
-static esp_err_t process_received_packet(const uint8_t* packet_data, int len, struct sockaddr_in* sender_addr) {
+static esp_err_t process_received_packet(const uint8_t* packet_data, int len,
+                                         struct sockaddr_in* sender_addr) {
     if (len < sizeof(p2p_udp_packet_header_t)) {
         ESP_LOGW(TAG, "Packet too small: %d bytes", len);
         return ESP_ERR_INVALID_SIZE;
@@ -458,7 +472,8 @@ static esp_err_t process_received_packet(const uint8_t* packet_data, int len, st
 
     // 验证数据长度
     if (len != sizeof(p2p_udp_packet_header_t) + header->data_size) {
-        ESP_LOGW(TAG, "Length mismatch: expected %d, got %d", sizeof(p2p_udp_packet_header_t) + header->data_size, len);
+        ESP_LOGW(TAG, "Length mismatch: expected %d, got %d",
+                 sizeof(p2p_udp_packet_header_t) + header->data_size, len);
         return ESP_ERR_INVALID_SIZE;
     }
 
@@ -467,13 +482,13 @@ static esp_err_t process_received_packet(const uint8_t* packet_data, int len, st
     const uint8_t* payload = packet_data + sizeof(p2p_udp_packet_header_t);
     uint16_t calculated_checksum = calculate_checksum(payload, header->data_size);
     if (calculated_checksum != header->checksum) {
-        ESP_LOGW(TAG, "Checksum mismatch: expected 0x%04x, got 0x%04x", header->checksum, calculated_checksum);
+        ESP_LOGW(TAG, "Checksum mismatch: expected 0x%04x, got 0x%04x", header->checksum,
+    calculated_checksum);
         // send_nack_packet(header->frame_id, header->packet_id, sender_addr);
         return ESP_ERR_INVALID_CRC;
     }
     */
     const uint8_t* payload = packet_data + sizeof(p2p_udp_packet_header_t);
-
 
     if (xSemaphoreTake(g_frame_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
         ESP_LOGW(TAG, "Failed to take frame mutex");
@@ -490,9 +505,11 @@ static esp_err_t process_received_packet(const uint8_t* packet_data, int len, st
 
             // 如果存在上一帧（无论是否完整），则认为其已结束，送去解码队列
             if (g_current_frame.frame_buffer && g_current_frame.received_packets > 0) {
-                 ESP_LOGI(TAG, "New frame %lu arrived, queueing previous frame %lu (%d/%d packets received)",
-                         header->frame_id, g_current_frame.frame_id,
-                         g_current_frame.received_packets, g_current_frame.total_packets);
+                ESP_LOGI(
+                    TAG,
+                    "New frame %lu arrived, queueing previous frame %lu (%d/%d packets received)",
+                    header->frame_id, g_current_frame.frame_id, g_current_frame.received_packets,
+                    g_current_frame.total_packets);
 
                 // 将帧数据发送到解码队列
                 decode_queue_item_t item_to_queue = {
@@ -501,7 +518,8 @@ static esp_err_t process_received_packet(const uint8_t* packet_data, int len, st
                     .frame_id = g_current_frame.frame_id,
                 };
                 if (xQueueSend(g_decode_queue, &item_to_queue, 0) != pdTRUE) {
-                    ESP_LOGW(TAG, "Decode queue is full. Dropping frame %lu.", item_to_queue.frame_id);
+                    ESP_LOGW(TAG, "Decode queue is full. Dropping frame %lu.",
+                             item_to_queue.frame_id);
                     free(item_to_queue.frame_buffer);
                 }
                 // 缓冲区的所有权已转移，将其置空以免被重复释放
@@ -527,32 +545,36 @@ static esp_err_t process_received_packet(const uint8_t* packet_data, int len, st
                 ret = ESP_ERR_INVALID_SIZE;
                 break;
             }
-            g_current_frame.frame_buffer = heap_caps_malloc(header->frame_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-            
+            g_current_frame.frame_buffer =
+                heap_caps_malloc(header->frame_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
             // 不再需要packet_received数组
             // g_current_frame.packet_received = calloc(header->total_packets, sizeof(bool));
 
             if (!g_current_frame.frame_buffer) {
-                ESP_LOGE(TAG, "Failed to allocate frame buffer for frame %lu, size %lu", header->frame_id, header->frame_size);
+                ESP_LOGE(TAG, "Failed to allocate frame buffer for frame %lu, size %lu",
+                         header->frame_id, header->frame_size);
                 cleanup_current_frame();
                 ret = ESP_ERR_NO_MEM;
                 break;
             }
 
-            ESP_LOGD(TAG, "New frame started: ID=%lu, size=%lu, packets=%d", header->frame_id, header->frame_size,
-                     header->total_packets);
+            ESP_LOGD(TAG, "New frame started: ID=%lu, size=%lu, packets=%d", header->frame_id,
+                     header->frame_size, header->total_packets);
         }
 
         // 检查g_current_frame.frame_buffer是否有效
         if (!g_current_frame.frame_buffer) {
             // 这可能是因为前一帧分配失败，或者这是一个乱序的旧帧包
-            ESP_LOGD(TAG, "Dropping packet for frame %lu as no buffer is allocated", header->frame_id);
+            ESP_LOGD(TAG, "Dropping packet for frame %lu as no buffer is allocated",
+                     header->frame_id);
             break;
         }
 
         // 检查包ID有效性
         if (header->packet_id >= g_current_frame.total_packets) {
-            ESP_LOGW(TAG, "Invalid packet ID: %d (max: %d)", header->packet_id, g_current_frame.total_packets - 1);
+            ESP_LOGW(TAG, "Invalid packet ID: %d (max: %d)", header->packet_id,
+                     g_current_frame.total_packets - 1);
             ret = ESP_ERR_INVALID_ARG;
             break;
         }
@@ -566,9 +588,9 @@ static esp_err_t process_received_packet(const uint8_t* packet_data, int len, st
             g_current_frame.received_packets++; // 只简单计数
             g_current_frame.last_update_time = get_timestamp_ms();
 
-            ESP_LOGD(TAG, "Received packet %d for frame %lu. Total received: %d/%d", 
-                     header->packet_id, header->frame_id,
-                     g_current_frame.received_packets, g_current_frame.total_packets);
+            ESP_LOGD(TAG, "Received packet %d for frame %lu. Total received: %d/%d",
+                     header->packet_id, header->frame_id, g_current_frame.received_packets,
+                     g_current_frame.total_packets);
 
         } else {
             ESP_LOGE(TAG, "Packet data exceeds frame buffer");
@@ -581,7 +603,8 @@ static esp_err_t process_received_packet(const uint8_t* packet_data, int len, st
         break;
 
     case P2P_UDP_PACKET_TYPE_NACK:
-        ESP_LOGW(TAG, "Received NACK for frame %lu, packet %d", header->frame_id, header->packet_id);
+        ESP_LOGW(TAG, "Received NACK for frame %lu, packet %d", header->frame_id,
+                 header->packet_id);
         g_lost_packets++;
         break;
 
@@ -595,9 +618,9 @@ static esp_err_t process_received_packet(const uint8_t* packet_data, int len, st
     return ret;
 }
 /*
-static esp_err_t send_ack_packet(uint32_t frame_id, uint16_t packet_id, struct sockaddr_in* dest_addr) {
-    uint8_t ack_buffer[sizeof(p2p_udp_packet_header_t)];
-    p2p_udp_packet_header_t* header = (p2p_udp_packet_header_t*)ack_buffer;
+static esp_err_t send_ack_packet(uint32_t frame_id, uint16_t packet_id, struct sockaddr_in*
+dest_addr) { uint8_t ack_buffer[sizeof(p2p_udp_packet_header_t)]; p2p_udp_packet_header_t* header =
+(p2p_udp_packet_header_t*)ack_buffer;
 
     memset(header, 0, sizeof(p2p_udp_packet_header_t));
     header->magic = P2P_UDP_MAGIC_NUMBER;
@@ -608,7 +631,8 @@ static esp_err_t send_ack_packet(uint32_t frame_id, uint16_t packet_id, struct s
     header->timestamp = get_timestamp_ms();
 
     int sent_len =
-        sendto(g_udp_socket, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr*)dest_addr, sizeof(*dest_addr));
+        sendto(g_udp_socket, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr*)dest_addr,
+sizeof(*dest_addr));
 
     if (sent_len < 0) {
         ESP_LOGW(TAG, "Failed to send ACK: errno %d", errno);
@@ -618,9 +642,9 @@ static esp_err_t send_ack_packet(uint32_t frame_id, uint16_t packet_id, struct s
     return ESP_OK;
 }
 
-static esp_err_t send_nack_packet(uint32_t frame_id, uint16_t packet_id, struct sockaddr_in* dest_addr) {
-    uint8_t nack_buffer[sizeof(p2p_udp_packet_header_t)];
-    p2p_udp_packet_header_t* header = (p2p_udp_packet_header_t*)nack_buffer;
+static esp_err_t send_nack_packet(uint32_t frame_id, uint16_t packet_id, struct sockaddr_in*
+dest_addr) { uint8_t nack_buffer[sizeof(p2p_udp_packet_header_t)]; p2p_udp_packet_header_t* header =
+(p2p_udp_packet_header_t*)nack_buffer;
 
     memset(header, 0, sizeof(p2p_udp_packet_header_t));
     header->magic = P2P_UDP_MAGIC_NUMBER;
@@ -631,7 +655,8 @@ static esp_err_t send_nack_packet(uint32_t frame_id, uint16_t packet_id, struct 
     header->timestamp = get_timestamp_ms();
 
     int sent_len =
-        sendto(g_udp_socket, nack_buffer, sizeof(nack_buffer), 0, (struct sockaddr*)dest_addr, sizeof(*dest_addr));
+        sendto(g_udp_socket, nack_buffer, sizeof(nack_buffer), 0, (struct sockaddr*)dest_addr,
+sizeof(*dest_addr));
 
     if (sent_len < 0) {
         ESP_LOGW(TAG, "Failed to send NACK: errno %d", errno);
@@ -653,18 +678,19 @@ static void cleanup_current_frame(void) {
     memset(&g_current_frame, 0, sizeof(g_current_frame));
 }
 
-static bool is_frame_complete(void) { return g_current_frame.received_packets == g_current_frame.total_packets; }
+static bool is_frame_complete(void) {
+    return g_current_frame.received_packets == g_current_frame.total_packets;
+}
 
-static esp_err_t decode_frame_data(uint8_t* frame_buffer, uint32_t frame_size, uint32_t frame_id)
-{
+static esp_err_t decode_frame_data(uint8_t* frame_buffer, uint32_t frame_size, uint32_t frame_id) {
     if (!frame_buffer || !g_image_callback || frame_size == 0) {
-        if (frame_buffer) free(frame_buffer);
+        if (frame_buffer)
+            free(frame_buffer);
         return ESP_ERR_INVALID_ARG;
     }
 
     // 验证JPEG格式 (稍微放宽，因为帧可能不完整)
-    if (frame_size < 4 || frame_buffer[0] != 0xFF ||
-        frame_buffer[1] != 0xD8) {
+    if (frame_size < 4 || frame_buffer[0] != 0xFF || frame_buffer[1] != 0xD8) {
         ESP_LOGE(TAG, "Invalid JPEG start marker for frame %lu", frame_id);
         free(frame_buffer);
         return ESP_ERR_INVALID_ARG;
@@ -714,7 +740,8 @@ static esp_err_t decode_frame_data(uint8_t* frame_buffer, uint32_t frame_size, u
     // 分配输出缓冲区
     int output_len = out_info->width * out_info->height * 2; // RGB565
     if (output_len <= 0) {
-        ESP_LOGE(TAG, "Invalid output dimensions for frame %lu: %dx%d", frame_id, out_info->width, out_info->height);
+        ESP_LOGE(TAG, "Invalid output dimensions for frame %lu: %dx%d", frame_id, out_info->width,
+                 out_info->height);
         free(jpeg_io);
         free(out_info);
         jpeg_dec_close(jpeg_dec);
@@ -756,8 +783,7 @@ static esp_err_t decode_frame_data(uint8_t* frame_buffer, uint32_t frame_size, u
     return (dec_ret == JPEG_ERR_OK) ? ESP_OK : ESP_FAIL;
 }
 
-static void jpeg_decode_task(void* pvParameters)
-{
+static void jpeg_decode_task(void* pvParameters) {
     decode_queue_item_t item;
     ESP_LOGI(TAG, "JPEG decode task started");
 
@@ -767,15 +793,17 @@ static void jpeg_decode_task(void* pvParameters)
             if (item.frame_buffer) {
                 ESP_LOGD(TAG, "Decoding frame %lu from queue", item.frame_id);
                 // 解码函数将负责释放缓冲区
-                if (decode_frame_data(item.frame_buffer, item.frame_size, item.frame_id) == ESP_OK) {
+                if (decode_frame_data(item.frame_buffer, item.frame_size, item.frame_id) ==
+                    ESP_OK) {
                     // FPS 计算
                     g_fps_frame_count++;
                     uint32_t current_time = get_timestamp_ms();
                     if (current_time - g_fps_last_time >= 1000) {
-                        g_current_fps = (float)g_fps_frame_count * 1000.0f / (current_time - g_fps_last_time);
+                        g_current_fps =
+                            (float)g_fps_frame_count * 1000.0f / (current_time - g_fps_last_time);
                         g_fps_last_time = current_time;
                         g_fps_frame_count = 0;
-                         ESP_LOGI(TAG, "p2p_udp_image_transfer FPS: %.2f", g_current_fps);
+                        ESP_LOGI(TAG, "p2p_udp_image_transfer FPS: %.2f", g_current_fps);
                     }
                 }
             }
@@ -792,17 +820,18 @@ static void jpeg_decode_task(void* pvParameters)
 }
 
 // 事件处理器实现
-static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
+                               void* event_data) {
     if (event_base == WIFI_EVENT) {
         switch (event_id) {
         case WIFI_EVENT_AP_START:
             set_connection_state(P2P_STATE_AP_STARTING, "Starting AP");
-            ESP_LOGI(TAG, "Wi-Fi AP started");
+            ESP_LOGI(TAG, "Wi-Fi AP started (p2p_udp)");
             break;
 
         case WIFI_EVENT_AP_STOP:
             set_connection_state(P2P_STATE_IDLE, "AP stopped");
-            ESP_LOGI(TAG, "Wi-Fi AP stopped");
+            ESP_LOGI(TAG, "Wi-Fi AP stopped (p2p_udp)");
             break;
 
         case WIFI_EVENT_STA_START:
@@ -825,7 +854,8 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
     }
 }
 
-static void ip_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+static void ip_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
+                             void* event_data) {
     if (event_base == IP_EVENT) {
         switch (event_id) {
         case IP_EVENT_AP_STAIPASSIGNED: {
@@ -922,7 +952,8 @@ esp_err_t p2p_udp_get_local_ip(char* ip_str, size_t max_len) {
     return ret;
 }
 
-void p2p_udp_get_stats(uint32_t* tx_packets, uint32_t* rx_packets, uint32_t* lost_packets, uint32_t* retx_packets) {
+void p2p_udp_get_stats(uint32_t* tx_packets, uint32_t* rx_packets, uint32_t* lost_packets,
+                       uint32_t* retx_packets) {
     if (tx_packets)
         *tx_packets = g_tx_packets;
     if (rx_packets)
@@ -933,8 +964,7 @@ void p2p_udp_get_stats(uint32_t* tx_packets, uint32_t* rx_packets, uint32_t* los
         *retx_packets = g_retx_packets;
 }
 
-void p2p_udp_image_transfer_deinit(void)
-{
+void p2p_udp_image_transfer_deinit(void) {
     if (!g_initialized) {
         return;
     }
@@ -987,11 +1017,7 @@ void p2p_udp_image_transfer_deinit(void)
     ESP_LOGI(TAG, "P2P UDP image transfer de-initialized");
 }
 
-
-float p2p_udp_get_fps(void)
-{
-    return g_current_fps;
-}
+float p2p_udp_get_fps(void) { return g_current_fps; }
 
 void p2p_udp_reset_stats(void) {
     g_tx_packets = 0;

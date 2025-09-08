@@ -1,8 +1,6 @@
+#include "esp_log.h" // 引入日志功能
 #include "ui.h"
 #include "wifi_manager.h" // 引入WiFi管理器头文件
-#include "ap_manager.h"   // 引入AP管理器头文件
-#include "ui_numeric_keypad.h" // 引入数字小键盘
-#include "esp_log.h"      // 引入日志功能
 #include <stdio.h>        // 为了使用 snprintf
 #include <string.h>       // 为了使用 strcat 等字符串函数
 
@@ -25,14 +23,6 @@ typedef struct {
     const char* status_disconnected;
     const char* status_connecting;
     const char* status_connected;
-    // AP相关文本
-    const char* ap_title;
-    const char* enable_ap;
-    const char* ap_ssid_label;
-    const char* ap_password_label;
-    const char* change_password_button;
-    const char* ap_status_label;
-    const char* ap_connected_devices;
 } wifi_text_t;
 
 // 英文文本
@@ -51,14 +41,6 @@ static const wifi_text_t wifi_english_text = {
     .status_disconnected = "Disconnected",
     .status_connecting = "Connecting...",
     .status_connected = "Connected",
-    // AP相关文本
-    .ap_title = "Hotspot Settings",
-    .enable_ap = "Enable Hotspot",
-    .ap_ssid_label = "Hotspot Name",
-    .ap_password_label = "Password",
-    .change_password_button = "Change Password",
-    .ap_status_label = "Hotspot Status",
-    .ap_connected_devices = "Connected Devices",
 };
 
 // 中文文本
@@ -77,14 +59,6 @@ static const wifi_text_t wifi_chinese_text = {
     .status_disconnected = "已断开",
     .status_connecting = "连接中...",
     .status_connected = "已连接",
-    // AP相关文本
-    .ap_title = "热点设置",
-    .enable_ap = "启用热点",
-    .ap_ssid_label = "热点名称",
-    .ap_password_label = "密码",
-    .change_password_button = "修改密码",
-    .ap_status_label = "热点状态",
-    .ap_connected_devices = "已连接设备",
 };
 
 // 获取当前语言文本
@@ -98,19 +72,7 @@ static lv_obj_t* g_ssid_label; // 新增SSID标签
 static lv_timer_t* g_update_timer;
 static bool g_wifi_ui_initialized = false;
 
-// AP相关UI元素句柄
-static lv_obj_t* g_ap_status_label;
-static lv_obj_t* g_ap_ssid_label;
-static lv_obj_t* g_ap_devices_label;
-static lv_obj_t* g_ap_switch;
-static bool g_ap_ui_initialized = false;
-
 static void wifi_dropdown_event_cb(lv_event_t* e);
-static void ap_switch_event_cb(lv_event_t* e);
-static void ap_password_change_cb(lv_event_t* e);
-static void ap_event_callback(ap_state_t state, const char* info);
-static void password_keypad_callback(const char* password, void* user_data);
-static void update_ap_info(void);
 
 /**
  * @brief 更新WiFi信息显示
@@ -128,10 +90,12 @@ static void update_wifi_info(void) {
         lv_label_set_text_fmt(g_status_label, "%s: %s", text->status_label, text->status_disabled);
         break;
     case WIFI_STATE_DISCONNECTED:
-        lv_label_set_text_fmt(g_status_label, "%s: %s", text->status_label, text->status_disconnected);
+        lv_label_set_text_fmt(g_status_label, "%s: %s", text->status_label,
+                              text->status_disconnected);
         break;
     case WIFI_STATE_CONNECTING:
-        lv_label_set_text_fmt(g_status_label, "%s: %s", text->status_label, text->status_connecting);
+        lv_label_set_text_fmt(g_status_label, "%s: %s", text->status_label,
+                              text->status_connecting);
         break;
     case WIFI_STATE_CONNECTED:
         lv_label_set_text_fmt(g_status_label, "%s: %s", text->status_label, text->status_connected);
@@ -179,8 +143,9 @@ static void details_btn_event_cb(lv_event_t* e) {
 
     char msg_buffer[200];
     char mac_str[24];
-    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", info.mac_addr[0], info.mac_addr[1],
-             info.mac_addr[2], info.mac_addr[3], info.mac_addr[4], info.mac_addr[5]);
+    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X", info.mac_addr[0],
+             info.mac_addr[1], info.mac_addr[2], info.mac_addr[3], info.mac_addr[4],
+             info.mac_addr[5]);
 
     const char* status_str;
     switch (info.state) {
@@ -207,8 +172,8 @@ static void details_btn_event_cb(lv_event_t* e) {
              "%s: %s\n"
              "%s: %s",
              text->status_label, status_str, text->ssid_label,
-             info.state == WIFI_STATE_CONNECTED ? (char*)info.ssid : "N/A", text->ip_label, info.ip_addr,
-             text->mac_label, mac_str);
+             info.state == WIFI_STATE_CONNECTED ? (char*)info.ssid : "N/A", text->ip_label,
+             info.ip_addr, text->mac_label, mac_str);
 
     lv_obj_t* msgbox = lv_msgbox_create(screen, text->details_title, msg_buffer, NULL, true);
     lv_obj_center(msgbox);
@@ -261,12 +226,13 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     // 2. 创建顶部栏
     lv_obj_t* top_bar_container;
     lv_obj_t* title_container;
-    ui_create_top_bar(page_parent_container, text->title, false, &top_bar_container, &title_container, NULL);
+    ui_create_top_bar(page_parent_container, text->title, false, &top_bar_container,
+                      &title_container, NULL);
 
     // 3. 创建页面内容容器
     lv_obj_t* content_container;
     ui_create_page_content_area(page_parent_container, &content_container);
-    
+
     // 设置内容容器为垂直布局
     lv_obj_set_flex_flow(content_container, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(content_container, 5, 0);
@@ -298,7 +264,8 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_set_width(switch_item, lv_pct(100));
     lv_obj_set_height(switch_item, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(switch_item, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(switch_item, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(switch_item, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_bg_opa(switch_item, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(switch_item, 0, 0);
     // 隐藏滚动条
@@ -330,7 +297,8 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_set_size(power_slider, lv_pct(100), 8);
     lv_obj_set_style_pad_all(power_slider, 2, LV_PART_KNOB);
     lv_slider_set_range(power_slider, 2, 20); // ESP32功率范围
-    lv_obj_add_event_cb(power_slider, power_slider_event_cb, LV_EVENT_VALUE_CHANGED, power_val_label);
+    lv_obj_add_event_cb(power_slider, power_slider_event_cb, LV_EVENT_VALUE_CHANGED,
+                        power_val_label);
 
     // --- 3. WiFi连接列表 ---
     lv_obj_t* dropdown_container_item = lv_obj_create(wifi_container);
@@ -396,82 +364,6 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_center(details_btn_label);
     theme_apply_to_label(details_btn_label, false);
 
-    // === 创建AP功能容器 ===
-    lv_obj_t* ap_container = lv_obj_create(content_container);
-    lv_obj_set_width(ap_container, lv_pct(100));
-    lv_obj_set_height(ap_container, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(ap_container, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(ap_container, 10, 0);
-    lv_obj_set_style_pad_gap(ap_container, 8, 0);
-    // 隐藏滚动条
-    lv_obj_set_style_width(ap_container, 0, LV_PART_SCROLLBAR);
-    lv_obj_set_style_opa(ap_container, LV_OPA_0, LV_PART_SCROLLBAR);
-    theme_apply_to_container(ap_container);
-
-    // AP容器标题
-    lv_obj_t* ap_title = lv_label_create(ap_container);
-    lv_label_set_text_fmt(ap_title, "%s %s", LV_SYMBOL_WIFI, text->ap_title);
-    theme_apply_to_label(ap_title, false);
-    lv_obj_set_style_text_color(ap_title, lv_palette_main(LV_PALETTE_GREEN), 0);
-
-    // --- 6. AP开关 ---
-    lv_obj_t* ap_switch_item = lv_obj_create(ap_container);
-    lv_obj_set_width(ap_switch_item, lv_pct(100));
-    lv_obj_set_height(ap_switch_item, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(ap_switch_item, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(ap_switch_item, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_opa(ap_switch_item, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(ap_switch_item, 0, 0);
-    // 隐藏滚动条
-    lv_obj_set_style_width(ap_switch_item, 0, LV_PART_SCROLLBAR);
-    lv_obj_set_style_opa(ap_switch_item, LV_OPA_0, LV_PART_SCROLLBAR);
-    lv_obj_clear_flag(ap_switch_item, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t* ap_switch_label = lv_label_create(ap_switch_item);
-    lv_label_set_text(ap_switch_label, text->enable_ap);
-    theme_apply_to_label(ap_switch_label, false);
-
-    g_ap_switch = lv_switch_create(ap_switch_item);
-    theme_apply_to_switch(g_ap_switch);
-    lv_obj_add_event_cb(g_ap_switch, ap_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    // --- 7. AP信息显示 ---
-    lv_obj_t* ap_info_container_item = lv_obj_create(ap_container);
-    lv_obj_set_width(ap_info_container_item, lv_pct(100));
-    lv_obj_set_height(ap_info_container_item, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(ap_info_container_item, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(ap_info_container_item, 5, 0);
-    lv_obj_set_style_bg_opa(ap_info_container_item, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(ap_info_container_item, 0, 0);
-    // 隐藏滚动条
-    lv_obj_set_style_width(ap_info_container_item, 0, LV_PART_SCROLLBAR);
-    lv_obj_set_style_opa(ap_info_container_item, LV_OPA_0, LV_PART_SCROLLBAR);
-    lv_obj_clear_flag(ap_info_container_item, LV_OBJ_FLAG_SCROLLABLE);
-
-    g_ap_status_label = lv_label_create(ap_info_container_item);
-    theme_apply_to_label(g_ap_status_label, false);
-    
-    g_ap_ssid_label = lv_label_create(ap_info_container_item);
-    theme_apply_to_label(g_ap_ssid_label, false);
-    // 设置SSID标签支持横向滚动显示
-    lv_label_set_long_mode(g_ap_ssid_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_width(g_ap_ssid_label, 180); // 设置固定宽度以触发滚动
-    
-    g_ap_devices_label = lv_label_create(ap_info_container_item);
-    theme_apply_to_label(g_ap_devices_label, false);
-
-    // --- 8. 修改AP密码按钮 ---
-    lv_obj_t* ap_password_btn = lv_btn_create(ap_container);
-    lv_obj_set_width(ap_password_btn, lv_pct(100));
-    lv_obj_set_height(ap_password_btn, 40);
-    theme_apply_to_button(ap_password_btn, false);
-    lv_obj_add_event_cb(ap_password_btn, ap_password_change_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t* ap_password_btn_label = lv_label_create(ap_password_btn);
-    lv_label_set_text_fmt(ap_password_btn_label, "%s %s", LV_SYMBOL_SETTINGS, text->change_password_button);
-    lv_obj_center(ap_password_btn_label);
-    theme_apply_to_label(ap_password_btn_label, false);
-
     // 初始化UI状态
     wifi_manager_info_t current_info = wifi_manager_get_info();
     if (current_info.state == WIFI_STATE_DISABLED) {
@@ -485,16 +377,6 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_slider_set_value(power_slider, power_dbm, LV_ANIM_OFF);
     lv_label_set_text_fmt(power_val_label, "%s: %d dBm", text->tx_power, power_dbm);
 
-    // 初始化AP管理器
-    esp_err_t ret = ap_manager_init(ap_event_callback);
-    if (ret != ESP_OK) {
-        // 处理初始化失败
-    }
-
-    // 初始化AP UI状态
-    g_ap_ui_initialized = true;
-    update_ap_info();
-
     // 创建并启动UI更新定时器
     g_update_timer = lv_timer_create(ui_update_timer_cb, 500, NULL);
 
@@ -506,97 +388,4 @@ static void wifi_dropdown_event_cb(lv_event_t* e) {
     lv_obj_t* dropdown = lv_event_get_target(e);
     uint16_t selected_index = lv_dropdown_get_selected(dropdown);
     wifi_manager_connect_to_index(selected_index);
-}
-
-// AP相关回调函数实现
-static void ap_switch_event_cb(lv_event_t* e) {
-    lv_obj_t* switcher = lv_event_get_target(e);
-
-    if (lv_obj_has_state(switcher, LV_STATE_CHECKED)) {
-        // 启动AP
-        esp_err_t ret = ap_manager_start();
-        if (ret != ESP_OK) {
-            // 如果启动失败，取消选中状态
-            lv_obj_clear_state(switcher, LV_STATE_CHECKED);
-            lv_obj_t* msgbox = lv_msgbox_create(lv_scr_act(), "Error", 
-                                               "Failed to start AP hotspot", 
-                                               NULL, true);
-            lv_obj_center(msgbox);
-        }
-    } else {
-        // 停止AP
-        ap_manager_stop();
-    }
-    update_ap_info();
-}
-
-static void ap_password_change_cb(lv_event_t* e) {
-    // 获取当前密码
-    char current_password[64] = {0};
-    ap_manager_get_password(current_password, sizeof(current_password));
-    
-    // 创建数字小键盘
-    ui_numeric_keypad_create(lv_scr_act(), "Change AP Password", 
-                           current_password, password_keypad_callback, NULL);
-}
-
-static void password_keypad_callback(const char* password, void* user_data) {
-    esp_err_t ret = ap_manager_set_password(password);
-    if (ret == ESP_OK) {
-        lv_obj_t* msgbox = lv_msgbox_create(lv_scr_act(), "Success", 
-                                           "AP password updated successfully", 
-                                           NULL, true);
-        lv_obj_center(msgbox);
-        update_ap_info();
-    } else {
-        lv_obj_t* msgbox = lv_msgbox_create(lv_scr_act(), "Error", 
-                                           "Failed to update AP password", 
-                                           NULL, true);
-        lv_obj_center(msgbox);
-    }
-}
-
-static void ap_event_callback(ap_state_t state, const char* info) {
-    // AP状态变化时更新UI
-    update_ap_info();
-}
-
-static void update_ap_info(void) {
-    if (!g_ap_ui_initialized) {
-        return;
-    }
-
-    const wifi_text_t* text = get_wifi_text();
-    ap_info_t info = ap_manager_get_info();
-
-    // 更新状态标签
-    const char* status_text = "Unknown";
-    switch (info.state) {
-    case AP_STATE_DISABLED:
-        status_text = text->status_disabled;
-        break;
-    case AP_STATE_STARTING:
-        status_text = "Starting...";
-        break;
-    case AP_STATE_RUNNING:
-        status_text = "Running";
-        break;
-    case AP_STATE_ERROR:
-        status_text = "Error";
-        break;
-    }
-    lv_label_set_text_fmt(g_ap_status_label, "Status: %s", status_text);
-
-    // 更新SSID标签
-    lv_label_set_text_fmt(g_ap_ssid_label, "SSID: %s", info.ssid);
-
-    // 更新已连接设备数量
-    lv_label_set_text_fmt(g_ap_devices_label, "%s: %d", text->ap_connected_devices, info.connected_stations);
-
-    // 更新开关状态
-    if (info.state == AP_STATE_RUNNING || info.state == AP_STATE_STARTING) {
-        lv_obj_add_state(g_ap_switch, LV_STATE_CHECKED);
-    } else {
-        lv_obj_clear_state(g_ap_switch, LV_STATE_CHECKED);
-    }
 }
