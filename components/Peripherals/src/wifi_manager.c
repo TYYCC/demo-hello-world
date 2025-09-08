@@ -40,17 +40,18 @@ typedef struct {
     char password[64];
 } wifi_config_entry_t;
 
-static wifi_config_entry_t wifi_list[MAX_WIFI_LIST_SIZE]={
-    {"tidy","22989822"},
-    {"Sysware-AP","syswareonline.com"},
-    {"Xiaomi13","22989822"},
-    {"TiydC","22989822"},
+static wifi_config_entry_t wifi_list[MAX_WIFI_LIST_SIZE] = {
+    {"tidy", "22989822"},
+    {"Sysware-AP", "syswareonline.com"},
+    {"Xiaomi13", "22989822"},
+    {"TiydC", "22989822"},
 
 };
 static int32_t wifi_list_size = 4;
 
 // 前向声明
-static bool load_wifi_config_from_nvs(char* ssid, size_t ssid_len, char* password, size_t password_len);
+static bool load_wifi_config_from_nvs(char* ssid, size_t ssid_len, char* password,
+                                      size_t password_len);
 static void save_wifi_config_to_nvs(const char* ssid, const char* password);
 static void save_wifi_list_to_nvs(void);
 static void load_wifi_list_from_nvs(void);
@@ -59,7 +60,8 @@ static void add_wifi_to_list(const char* ssid, const char* password);
 /**
  * @brief WiFi事件处理器
  */
-static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id,
+                          void* event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         g_wifi_info.state = WIFI_STATE_CONNECTING;
         esp_wifi_connect();
@@ -72,14 +74,15 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
         // 重置重试计数，避免自动重连
         s_retry_num = 0;
         ESP_LOGI(TAG, "WiFi disconnected");
-        
+
         // 如果设置了回调函数，则调用它
         if (g_event_cb) {
             g_event_cb();
         }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*)event_data;
-        snprintf(g_wifi_info.ip_addr, sizeof(g_wifi_info.ip_addr), IPSTR, IP2STR(&event->ip_info.ip));
+        snprintf(g_wifi_info.ip_addr, sizeof(g_wifi_info.ip_addr), IPSTR,
+                 IP2STR(&event->ip_info.ip));
         g_wifi_info.state = WIFI_STATE_CONNECTED;
         s_retry_num = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
@@ -95,7 +98,6 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
 
         ESP_LOGI(TAG, "Starting time synchronization...");
         wifi_manager_sync_time();
-
     }
 
     // 如果设置了回调函数，则调用它
@@ -117,7 +119,7 @@ static esp_err_t wifi_init_stack(void) {
     ESP_ERROR_CHECK(ret);
 
     ESP_ERROR_CHECK(esp_netif_init());
-    
+
     // 检查事件循环是否已经存在，避免重复创建
     ret = esp_event_loop_create_default();
     if (ret == ESP_ERR_INVALID_STATE) {
@@ -125,7 +127,7 @@ static esp_err_t wifi_init_stack(void) {
     } else {
         ESP_ERROR_CHECK(ret);
     }
-    
+
     esp_netif_create_default_wifi_sta();
 
     // 初始化WiFi驱动
@@ -136,10 +138,10 @@ static esp_err_t wifi_init_stack(void) {
     // 注册事件处理器
     esp_event_handler_instance_t instance_any_id;
     esp_event_handler_instance_t instance_got_ip;
-    ESP_ERROR_CHECK(
-        esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, &instance_any_id));
-    ESP_ERROR_CHECK(
-        esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL, &instance_got_ip));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                                        &event_handler, NULL, &instance_any_id));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                                        &event_handler, NULL, &instance_got_ip));
     return ESP_OK;
 }
 
@@ -171,15 +173,17 @@ esp_err_t wifi_manager_start(void) {
     load_wifi_list_from_nvs();
 
     wifi_config_t wifi_config = {0};
-    
+
     // 优先使用上次成功连接的WiFi
     if (load_wifi_config_from_nvs((char*)wifi_config.sta.ssid, sizeof(wifi_config.sta.ssid),
-                                  (char*)wifi_config.sta.password, sizeof(wifi_config.sta.password))) {
+                                  (char*)wifi_config.sta.password,
+                                  sizeof(wifi_config.sta.password))) {
         ESP_LOGI(TAG, "Attempting to connect to last known WiFi: %s", wifi_config.sta.ssid);
     } else if (wifi_list_size > 0) {
         // 否则，尝试列表中的第一个WiFi
         strncpy((char*)wifi_config.sta.ssid, wifi_list[0].ssid, sizeof(wifi_config.sta.ssid));
-        strncpy((char*)wifi_config.sta.password, wifi_list[0].password, sizeof(wifi_config.sta.password));
+        strncpy((char*)wifi_config.sta.password, wifi_list[0].password,
+                sizeof(wifi_config.sta.password));
         ESP_LOGI(TAG, "Attempting to connect to WiFi from list: %s", wifi_config.sta.ssid);
     } else {
         // 如果都没有，则使用默认配置
@@ -189,7 +193,7 @@ esp_err_t wifi_manager_start(void) {
     }
 
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK;
-    
+
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -212,6 +216,11 @@ esp_err_t wifi_manager_stop(void) {
         memset(g_wifi_info.ssid, 0, sizeof(g_wifi_info.ssid)); // 清空SSID
         if (g_event_cb)
             g_event_cb();
+
+        // 通知状态栏管理器AP已停止
+        extern esp_err_t status_bar_manager_set_ap_status(bool is_running);
+        status_bar_manager_set_ap_status(false);
+        ESP_LOGI(TAG, "AP状态已更新为停止");
     }
     if (s_wifi_event_group) {
         vEventGroupDelete(s_wifi_event_group);
@@ -307,34 +316,30 @@ bool wifi_manager_get_time_str(char* time_str, size_t max_len) {
     return true;
 }
 
-int32_t wifi_manager_get_wifi_list_size(void)
-{
-    return wifi_list_size;
-}
+int32_t wifi_manager_get_wifi_list_size(void) { return wifi_list_size; }
 
-const char* wifi_manager_get_wifi_ssid_by_index(int32_t index)
-{
+const char* wifi_manager_get_wifi_ssid_by_index(int32_t index) {
     if (index < 0 || index >= wifi_list_size) {
         return NULL;
     }
     return wifi_list[index].ssid;
 }
 
-esp_err_t wifi_manager_connect_to_index(int32_t index)
-{
+esp_err_t wifi_manager_connect_to_index(int32_t index) {
     if (index < 0 || index >= wifi_list_size) {
         return ESP_ERR_INVALID_ARG;
     }
 
     ESP_LOGI(TAG, "Connecting to %s...", wifi_list[index].ssid);
-    
+
     // 先断开当前连接，避免冲突
     esp_wifi_disconnect();
     vTaskDelay(pdMS_TO_TICKS(200)); // 等待断开完成
-    
+
     wifi_config_t wifi_config = {0};
-    strlcpy((char *)wifi_config.sta.ssid, wifi_list[index].ssid, sizeof(wifi_config.sta.ssid));
-    strlcpy((char *)wifi_config.sta.password, wifi_list[index].password, sizeof(wifi_config.sta.password));
+    strlcpy((char*)wifi_config.sta.ssid, wifi_list[index].ssid, sizeof(wifi_config.sta.ssid));
+    strlcpy((char*)wifi_config.sta.password, wifi_list[index].password,
+            sizeof(wifi_config.sta.password));
 
     // 设置认证模式
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK;
@@ -365,7 +370,8 @@ static void save_wifi_config_to_nvs(const char* ssid, const char* password) {
     }
 }
 
-static bool load_wifi_config_from_nvs(char* ssid, size_t ssid_len, char* password, size_t password_len) {
+static bool load_wifi_config_from_nvs(char* ssid, size_t ssid_len, char* password,
+                                      size_t password_len) {
     nvs_handle_t nvs_handle;
     esp_err_t err = nvs_open(WIFI_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
     if (err == ESP_OK) {
@@ -419,7 +425,8 @@ static void load_wifi_list_from_nvs() {
 static void add_wifi_to_list(const char* ssid, const char* password) {
     if (wifi_list_size < MAX_WIFI_LIST_SIZE) {
         strncpy(wifi_list[wifi_list_size].ssid, ssid, sizeof(wifi_list[wifi_list_size].ssid));
-        strncpy(wifi_list[wifi_list_size].password, password, sizeof(wifi_list[wifi_list_size].password));
+        strncpy(wifi_list[wifi_list_size].password, password,
+                sizeof(wifi_list[wifi_list_size].password));
         wifi_list_size++;
         save_wifi_list_to_nvs();
         ESP_LOGI(TAG, "WiFi added to list: %s", ssid);

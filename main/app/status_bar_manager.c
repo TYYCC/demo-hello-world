@@ -12,6 +12,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
+#include "esp_wifi_types.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
@@ -39,6 +40,10 @@ typedef struct {
     bool audio_receiving;
     bool tcp_client_connected;
     int wifi_signal_strength;
+
+    // AP状态控制标志，避免异步时序问题
+    uint32_t ap_stop_timestamp; // AP停止的时间戳
+    bool ap_force_stopped;      // 是否强制停止了AP
 
     // 更新回调
     status_bar_update_cb_t update_cb;
@@ -200,8 +205,8 @@ esp_err_t status_bar_manager_set_fixed_labels(lv_obj_t* time_label, lv_obj_t* ba
  */
 esp_err_t status_bar_manager_show_icon(status_icon_type_t icon_type, bool show) {
     if (g_manager == NULL) {
-        ESP_LOGE(TAG, "Status bar manager not initialized");
-        return ESP_ERR_INVALID_STATE;
+        ESP_LOGD(TAG, "Status bar manager not initialized, icon update deferred");
+        return ESP_OK;
     }
 
     if (icon_type >= STATUS_ICON_MAX) {
@@ -274,8 +279,17 @@ esp_err_t status_bar_manager_set_wifi_signal(int signal_strength) {
  */
 esp_err_t status_bar_manager_set_ap_status(bool is_running) {
     if (g_manager == NULL) {
-        ESP_LOGE(TAG, "Status bar manager not initialized");
-        return ESP_ERR_INVALID_STATE;
+        ESP_LOGD(TAG, "Status bar manager not initialized, AP status update deferred");
+        return ESP_OK;
+    }
+
+    // 记录AP停止的时间戳和状态，避免异步时序问题
+    if (!is_running) {
+        g_manager->ap_stop_timestamp = xTaskGetTickCount();
+        g_manager->ap_force_stopped = true;
+        ESP_LOGD(TAG, "AP强制停止标记已设置，时间戳: %u", g_manager->ap_stop_timestamp);
+    } else {
+        g_manager->ap_force_stopped = false;
     }
 
     g_manager->ap_running = is_running;
@@ -287,8 +301,8 @@ esp_err_t status_bar_manager_set_ap_status(bool is_running) {
  */
 esp_err_t status_bar_manager_set_audio_status(bool is_receiving) {
     if (g_manager == NULL) {
-        ESP_LOGE(TAG, "Status bar manager not initialized");
-        return ESP_ERR_INVALID_STATE;
+        ESP_LOGD(TAG, "Status bar manager not initialized, audio status update deferred");
+        return ESP_OK;
     }
 
     g_manager->audio_receiving = is_receiving;
@@ -300,8 +314,8 @@ esp_err_t status_bar_manager_set_audio_status(bool is_receiving) {
  */
 esp_err_t status_bar_manager_set_tcp_client_status(bool has_client_connected) {
     if (g_manager == NULL) {
-        ESP_LOGE(TAG, "Status bar manager not initialized");
-        return ESP_ERR_INVALID_STATE;
+        ESP_LOGD(TAG, "Status bar manager not initialized, TCP status update deferred");
+        return ESP_OK;
     }
 
     g_manager->tcp_client_connected = has_client_connected;
@@ -504,11 +518,23 @@ static void check_and_update_states(void) {
         status_bar_manager_set_wifi_signal(-1); // 未连接
     }
 
-    // 检查AP (Access Point) 状态 - 需要从wifi_manager获取AP运行状态
-    wifi_mode_t wifi_mode;
-    if (esp_wifi_get_mode(&wifi_mode) == ESP_OK) {
-        bool ap_active = (wifi_mode == WIFI_MODE_AP || wifi_mode == WIFI_MODE_APSTA);
-        status_bar_manager_set_ap_status(ap_active);
+    // 如果AP被强制停止，保持停止状态一段时间
+    if (g_manager->ap_force_stopped) {
+        uint32_t current_time = xTaskGetTickCount();
+        uint32_t time_diff = current_time - g_manager->ap_stop_timestamp;
+
+        // 如果距离强制停止的时间小于3秒，强制保持停止状态
+        if (time_diff < pdMS_TO_TICKS(3000)) {
+            if (g_manager->ap_running) {
+                ESP_LOGD(TAG, "AP强制停止保护期内，保持停止状态 (剩余: %u ms)",
+                         pdTICKS_TO_MS(pdMS_TO_TICKS(3000) - time_diff));
+                status_bar_manager_set_ap_status(false);
+            }
+        } else {
+            // 保护期结束，重置强制停止标记
+            g_manager->ap_force_stopped = false;
+            ESP_LOGD(TAG, "AP强制停止保护期结束");
+        }
     }
 
     // 检查音频接收状态
