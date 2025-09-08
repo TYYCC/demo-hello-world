@@ -9,9 +9,10 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "settings_manager.h" // For transfer mode settings
+#include "st7789.h"           // For backlight control
 #include "theme_manager.h"
 #include "ui.h"
-#include "st7789.h" // For backlight control
+
 
 static const char* TAG = "UI_SETTINGS";
 
@@ -35,6 +36,7 @@ typedef struct {
     const char* language_changed;
     const char* wifi_settings_label; // 新增WiFi设置标签
     const char* backlight_label;     // 新增背光标签
+    const char* auto_pairing_label;  // 自动配对标签
 } ui_text_t;
 
 // 英文文本
@@ -50,7 +52,8 @@ static const ui_text_t english_text = {.settings_title = "SETTINGS",
                                        .version_info = "ESP32-S3 Demo v1.0.0",
                                        .language_changed = "Language Changed!",
                                        .wifi_settings_label = "WiFi Settings",
-                                       .backlight_label = "Backlight:"};
+                                       .backlight_label = "Backlight:",
+                                       .auto_pairing_label = "Auto Pairing"};
 
 // 中文文本（需要中文字体支持）
 static const ui_text_t chinese_text = {.settings_title = "设置",
@@ -65,7 +68,8 @@ static const ui_text_t chinese_text = {.settings_title = "设置",
                                        .version_info = "ESP32-S3 演示 v1.0.0",
                                        .language_changed = "语言已切换!",
                                        .wifi_settings_label = "无线网络设置",
-                                       .backlight_label = "背光:"};
+                                       .backlight_label = "背光:",
+                                       .auto_pairing_label = "自动配对"};
 
 // 获取当前语言文本
 static const ui_text_t* get_current_text(void) {
@@ -105,7 +109,8 @@ static ui_language_t load_language_setting(void) {
         err = nvs_get_u8(nvs_handle, "language", &lang);
         nvs_close(nvs_handle);
         if (err == ESP_OK) {
-            ESP_LOGI(TAG, "Language setting loaded: %s", lang == LANG_CHINESE ? "Chinese" : "English");
+            ESP_LOGI(TAG, "Language setting loaded: %s",
+                     lang == LANG_CHINESE ? "Chinese" : "English");
         }
     }
     return (ui_language_t)lang;
@@ -121,7 +126,8 @@ static void language_switch_cb(lv_event_t* e) {
 
     // 显示切换提示
     lv_obj_t* screen = lv_scr_act();
-    lv_obj_t* msgbox = lv_msgbox_create(screen, "Info", get_current_text()->language_changed, NULL, true);
+    lv_obj_t* msgbox =
+        lv_msgbox_create(screen, "Info", get_current_text()->language_changed, NULL, true);
     lv_obj_center(msgbox);
 
     ESP_LOGI(TAG, "Language switched to: %s", is_chinese ? "Chinese" : "English");
@@ -134,6 +140,13 @@ static void wifi_settings_btn_cb(lv_event_t* e) {
         lv_obj_clean(screen);
         ui_wifi_settings_create(screen); // 跳转到WiFi设置页面
     }
+}
+
+// 自动配对按钮回调
+static void auto_pairing_btn_cb(lv_event_t* e) {
+    // 启动自动配对功能
+    extern void auto_pairing_start(void);
+    auto_pairing_start();
 }
 
 // 关于信息回调
@@ -200,15 +213,14 @@ static void theme_dropdown_cb(lv_event_t* e) {
 static void backlight_slider_cb(lv_event_t* e) {
     lv_obj_t* slider = lv_event_get_target(e);
     lv_obj_t* label = (lv_obj_t*)lv_event_get_user_data(e);
-    
+
     int32_t brightness = lv_slider_get_value(slider);
     lv_label_set_text_fmt(label, "%ld%%", brightness);
-    
+
     // Set and save backlight
     st7789_set_backlight((uint8_t)brightness);
     settings_set_backlight((uint8_t)brightness);
 }
-
 
 // Callbacks for the new transfer mode checkboxes
 static void transfer_mode_tcp_cb(lv_event_t* e);
@@ -230,7 +242,8 @@ void ui_settings_create(lv_obj_t* parent) {
     // 创建顶部栏容器（包含返回按钮和标题, 但不包含设置按钮）
     lv_obj_t* top_bar_container;
     lv_obj_t* title_container;
-    ui_create_top_bar(page_parent_container, text->settings_title, false, &top_bar_container, &title_container, NULL);
+    ui_create_top_bar(page_parent_container, text->settings_title, false, &top_bar_container,
+                      &title_container, NULL);
 
     // 创建页面内容容器
     lv_obj_t* content_container;
@@ -238,7 +251,8 @@ void ui_settings_create(lv_obj_t* parent) {
 
     // 设置内容容器为可滚动列表布局
     lv_obj_set_flex_flow(content_container, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(content_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_set_flex_align(content_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_all(content_container, 10, 0);
     lv_obj_set_style_pad_gap(content_container, 25, 0);
 
@@ -256,7 +270,8 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_obj_set_width(lang_row, lv_pct(100));
     lv_obj_set_height(lang_row, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(lang_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(lang_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(lang_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_bg_opa(lang_row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(lang_row, 0, 0);
     lv_obj_set_style_pad_all(lang_row, 0, 0);
@@ -273,7 +288,8 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_obj_add_event_cb(lang_switch, language_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_t* lang_status = lv_label_create(lang_group);
-    lv_label_set_text(lang_status, g_current_language == LANG_CHINESE ? text->chinese_text : text->english_text);
+    lv_label_set_text(lang_status,
+                      g_current_language == LANG_CHINESE ? text->chinese_text : text->english_text);
     theme_apply_to_label(lang_status, false);
 
     // --- 背光设置 ---
@@ -290,11 +306,12 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_obj_set_width(backlight_row, lv_pct(100));
     lv_obj_set_height(backlight_row, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(backlight_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(backlight_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(backlight_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_bg_opa(backlight_row, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(backlight_row, 0, 0);
     lv_obj_set_style_pad_all(backlight_row, 0, 0);
-    
+
     lv_obj_t* backlight_label = lv_label_create(backlight_row);
     lv_label_set_text(backlight_label, text->backlight_label);
     theme_apply_to_label(backlight_label, false);
@@ -308,8 +325,8 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_obj_set_width(backlight_slider, lv_pct(100));
     lv_slider_set_range(backlight_slider, 10, 100);
     lv_slider_set_value(backlight_slider, current_backlight, LV_ANIM_OFF);
-    lv_obj_add_event_cb(backlight_slider, backlight_slider_cb, LV_EVENT_VALUE_CHANGED, backlight_value_label);
-
+    lv_obj_add_event_cb(backlight_slider, backlight_slider_cb, LV_EVENT_VALUE_CHANGED,
+                        backlight_value_label);
 
     // --- 主题设置 ---
     lv_obj_t* theme_group = lv_obj_create(content_container);
@@ -333,22 +350,36 @@ void ui_settings_create(lv_obj_t* parent) {
     // 设置下拉列表样式
     lv_obj_set_style_radius(theme_dropdown, 8, LV_PART_MAIN);
     lv_obj_set_style_border_width(theme_dropdown, 2, LV_PART_MAIN);
-    lv_obj_set_style_border_color(theme_dropdown, theme_get_color(theme_get_current_theme()->colors.border),
-                                  LV_PART_MAIN);
-    lv_obj_set_style_bg_color(theme_dropdown, theme_get_color(theme_get_current_theme()->colors.surface), LV_PART_MAIN);
-    lv_obj_set_style_text_color(theme_dropdown, theme_get_color(theme_get_current_theme()->colors.text_primary),
+    lv_obj_set_style_border_color(
+        theme_dropdown, theme_get_color(theme_get_current_theme()->colors.border), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(
+        theme_dropdown, theme_get_color(theme_get_current_theme()->colors.surface), LV_PART_MAIN);
+    lv_obj_set_style_text_color(theme_dropdown,
+                                theme_get_color(theme_get_current_theme()->colors.text_primary),
                                 LV_PART_MAIN);
     lv_obj_set_style_text_font(theme_dropdown, &lv_font_montserrat_14, LV_PART_MAIN);
 
     theme_type_t current_theme_type = theme_get_current();
     int selected_index = 0;
     switch (current_theme_type) {
-    case THEME_MORANDI: selected_index = 0; break;
-    case THEME_DARK: selected_index = 1; break;
-    case THEME_LIGHT: selected_index = 2; break;
-    case THEME_BLUE: selected_index = 3; break;
-    case THEME_GREEN: selected_index = 4; break;
-    default: selected_index = 0; break;
+    case THEME_MORANDI:
+        selected_index = 0;
+        break;
+    case THEME_DARK:
+        selected_index = 1;
+        break;
+    case THEME_LIGHT:
+        selected_index = 2;
+        break;
+    case THEME_BLUE:
+        selected_index = 3;
+        break;
+    case THEME_GREEN:
+        selected_index = 4;
+        break;
+    default:
+        selected_index = 0;
+        break;
     }
     lv_dropdown_set_selected(theme_dropdown, selected_index);
 
@@ -370,7 +401,8 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_obj_set_width(cb_container, lv_pct(100));
     lv_obj_set_height(cb_container, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(cb_container, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(cb_container, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(cb_container, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_bg_opa(cb_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cb_container, 0, 0);
     lv_obj_set_style_pad_all(cb_container, 0, 0);
@@ -401,6 +433,18 @@ void ui_settings_create(lv_obj_t* parent) {
     theme_apply_to_label(wifi_label, false);
     lv_obj_center(wifi_label);
 
+    // --- 自动配对 ---
+    lv_obj_t* pairing_btn = lv_btn_create(content_container);
+    lv_obj_set_width(pairing_btn, lv_pct(100));
+    lv_obj_set_height(pairing_btn, 40);
+    theme_apply_to_button(pairing_btn, true);
+    lv_obj_add_event_cb(pairing_btn, auto_pairing_btn_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t* pairing_label = lv_label_create(pairing_btn);
+    lv_label_set_text(pairing_label, text->auto_pairing_label);
+    theme_apply_to_label(pairing_label, false);
+    lv_obj_center(pairing_label);
+
     // --- 关于 ---
     lv_obj_t* about_btn = lv_btn_create(content_container);
     lv_obj_set_width(about_btn, lv_pct(100));
@@ -413,7 +457,8 @@ void ui_settings_create(lv_obj_t* parent) {
     theme_apply_to_label(about_label, false);
     lv_obj_center(about_label);
 
-    ESP_LOGI(TAG, "Settings UI created with language: %s", g_current_language == LANG_CHINESE ? "Chinese" : "English");
+    ESP_LOGI(TAG, "Settings UI created with language: %s",
+             g_current_language == LANG_CHINESE ? "Chinese" : "English");
 }
 
 static void transfer_mode_tcp_cb(lv_event_t* e) {

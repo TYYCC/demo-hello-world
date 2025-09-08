@@ -54,6 +54,7 @@ else()
         "app/status_bar_manager.c"
         "app/lsm6ds_control.c"
         "app/audio_receiver.c"
+        "app/auto_pairing.c"
 
         # app中遥测相关的文件，数量较多
         "app/Telemetry/src/telemetry_protocol.c"

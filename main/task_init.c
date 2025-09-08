@@ -5,6 +5,7 @@
 
 // 项目本地头文件
 #include "../app/Telemetry/inc/tcp_server_hb.h"
+#include "../app/inc/auto_pairing.h"
 #include "background_manager.h"
 #include "joystick_adc.h"
 #include "lsm6ds_control.h"
