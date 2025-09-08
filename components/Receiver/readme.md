@@ -106,44 +106,44 @@ set(EN_RECEIVER_MODE ON)
 | 引脚 | 功能 | 说明 |
 |------|------|------|
 | A1 | GND | |
-| A2 | GND | |
-| A3 | +5V | USB/VBUS 或备用 5V |
-| A4 | GND | 可改作 USB_ID/OTG，默认 GND 做屏蔽 |
-| A5 | GND | USB 护栏 |
-| A6 | USB_D+ | |
-| A7 | USB_D− | A5/A8 做护栏 |
-| A8 | GND | USB 护栏 |
-| A9 | GND | SCLK 护栏 |
-| A10 | SPI_SCLK | 两侧 A9/A11 为 GND |
-| A11 | GND | SCLK 护栏 |
-| A12 | SPI_MOSI | |
-| A13 | GND | MOSIx 护栏 |
-| A14 | SPI_MISO | |
-| A15 | GND | MISO 护栏 |
-| A16 | SPI_CS0 | |
+| A2 | PWM8 | |
+| A3 | PWM7 ||
+| A4 | GND | |
+| A5 | PWM6 |  |
+| A6 | PWM5 | |
+| A7 | GND |  |
+| A8 | PWM4 |  |
+| A9 | PWM3 |  |
+| A10 | GND |  |
+| A11 | +3.3V | |
+| A12 | GND | |
+| A13 | PWM2 | |
+| A14 | PWM1 | |
+| A15 | GND | |
+| A16 | +5V |+5V电源 |
 | A17 | +3V3 | 主逻辑电源 |
-| A18 | GND | |
+| A18 | TX |用于下载 |
 
 ### B 面（PWM+CS 分区，穿插接地）
 
 | 引脚 | 功能 | 说明 |
 |------|------|------|
 | B1 | GND | |
-| B2 | GND | |
-| B3 | +5V | 与 A3 并联提高承载 |
-| B4 | SPI_CS1 | 或备用 CS/INT |
-| B5 | PWM1 | |
-| B6 | GND | |
-| B7 | PWM2 | |
-| B8 | PWM3 | |
-| B9 | GND | |
-| B10 | PWM4 | |
-| B11 | PWM5 | |
+| B2 | MISO | |
+| B3 | MOSI ||
+| B4 | GND ||
+| B5 | SCLK ||
+| B6 | CS | |
+| B7 | GND |USB 护栏 |
+| B8 | USB+ | |
+| B9 | USB- | |
+| B10 | GND | USB 护栏 |
+| B11 | +3.3V |  与 A11 并联提高承载 |
 | B12 | GND | |
-| B13 | PWM6 | |
-| B14 | PWM7 | |
+| B13 | INT2 | SPI中断 |
+| B14 | INT1 | SPI中断 |
 | B15 | GND | |
-| B16 | PWM8 | |
+| B16 | +5V | |
 | B17 | +3V3 | 与 A17 并联 |
-| B18 | GND | |
+| B18 | RX | 用于下载|
 
