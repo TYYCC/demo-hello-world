@@ -24,7 +24,6 @@ static const char* TAG = "telemetry_sender";
 // 全局变量
 static int g_client_sock = -1;
 static bool g_sender_active = false;
-static uint32_t g_last_heartbeat = 0;
 static uint32_t g_last_data_send = 0;
 
 // 内部函数声明
@@ -39,7 +38,6 @@ int telemetry_sender_init(void) {
     ESP_LOGI(TAG, "Initializing telemetry sender");
     g_client_sock = -1;
     g_sender_active = false;
-    g_last_heartbeat = 0;
     g_last_data_send = 0;
     return 0;
 }
@@ -53,8 +51,7 @@ void telemetry_sender_set_client_socket(int client_sock) {
     g_client_sock = client_sock;
     g_sender_active = (client_sock >= 0);
     if (g_sender_active) {
-        // 连接建立后，立即重置计时器，以尽快发送第一个心跳和数据包
-        g_last_heartbeat = xTaskGetTickCount();
+        // 连接建立后，立即重置计时器，以尽快发送第一个数据包
         g_last_data_send = xTaskGetTickCount();
         ESP_LOGI(TAG, "Telemetry sender activated with client socket %d", client_sock);
     } else {
@@ -80,26 +77,7 @@ void telemetry_sender_process(void) {
     uint32_t current_time = xTaskGetTickCount();
     uint8_t frame_buffer[128]; // 用于构建帧的缓冲区
 
-    // 每2秒发送心跳包
-    if (current_time - g_last_heartbeat > pdMS_TO_TICKS(2000)) {
-        uint8_t status = 0;
-        if (telemetry_data_converter_get_device_status(&status) != ESP_OK) {
-            ESP_LOGW(TAG, "Failed to get device status for heartbeat");
-            status = 0x02; // Error status
-        }
-
-        size_t frame_len = telemetry_protocol_create_heartbeat_frame(frame_buffer, sizeof(frame_buffer), status);
-        if (frame_len > 0) {
-            if (send_frame(frame_buffer, frame_len) > 0) {
-                ESP_LOGI(TAG, "Sent heartbeat frame");
-                g_last_heartbeat = current_time;
-            } else {
-                ESP_LOGW(TAG, "Failed to send heartbeat, client may be disconnected");
-                g_sender_active = false;
-                return;
-            }
-        }
-    }
+    // 心跳包发送已移除，由独立的TCP服务器处理
 
     // 每100毫秒发送控制数据
     if (current_time - g_last_data_send > pdMS_TO_TICKS(100)) {
@@ -107,8 +85,8 @@ void telemetry_sender_process(void) {
         uint8_t channel_count = 0;
 
         if (telemetry_data_converter_get_rc_channels(channels, &channel_count) == ESP_OK) {
-            size_t frame_len =
-                telemetry_protocol_create_rc_frame(frame_buffer, sizeof(frame_buffer), channel_count, channels);
+            size_t frame_len = telemetry_protocol_create_rc_frame(
+                frame_buffer, sizeof(frame_buffer), channel_count, channels);
             if (frame_len > 0) {
                 if (send_frame(frame_buffer, frame_len) > 0) {
                     // RC帧发送完成

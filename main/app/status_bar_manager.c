@@ -18,7 +18,6 @@
 #include "wifi_manager.h"
 #include <string.h>
 
-
 static const char* TAG = "STATUS_BAR_MANAGER";
 
 #define ICON_SPACING 25         // 图标之间的间距
@@ -38,6 +37,7 @@ typedef struct {
     bool wifi_connected;
     bool ap_running;
     bool audio_receiving;
+    bool tcp_client_connected;
     int wifi_signal_strength;
 
     // 更新回调
@@ -51,13 +51,15 @@ typedef struct {
 static status_bar_manager_t* g_manager = NULL;
 
 // 图标符号映射
-static const char* icon_symbols[STATUS_ICON_MAX] = {[STATUS_ICON_WIFI_NONE] = MYSYMBOL_NO_WIFI,
-                                                    [STATUS_ICON_WIFI_LOW] = MYSYMBOL_WIFI_LOW,
-                                                    [STATUS_ICON_WIFI_MEDIUM] =
-                                                        MYSYMBOL_WIFI_MEDIUM,
-                                                    [STATUS_ICON_WIFI_HIGH] = MYSYMBOL_WIFI_HIGH,
-                                                    [STATUS_ICON_AP] = MYSYMBOL_BROADCAST,
-                                                    [STATUS_ICON_MUSIC] = MYSYMBOL_MUSIC};
+static const char* icon_symbols[STATUS_ICON_MAX] = {
+    [STATUS_ICON_WIFI_NONE] = MYSYMBOL_NO_WIFI,
+    [STATUS_ICON_WIFI_LOW] = MYSYMBOL_WIFI_LOW,
+    [STATUS_ICON_WIFI_MEDIUM] = MYSYMBOL_WIFI_MEDIUM,
+    [STATUS_ICON_WIFI_HIGH] = MYSYMBOL_WIFI_HIGH,
+    [STATUS_ICON_AP] = MYSYMBOL_BROADCAST,
+    [STATUS_ICON_MUSIC] = MYSYMBOL_MUSIC,
+    [STATUS_ICON_PLUGS_DISCONNECTED] = MYSYMBOL_PLUGS,
+    [STATUS_ICON_PLUGS_CONNECTED] = MYSYMBOL_PLUGS_CONNECTED};
 
 // 前向声明
 static void status_bar_update_timer_callback(TimerHandle_t xTimer);
@@ -93,9 +95,10 @@ esp_err_t status_bar_manager_init(void) {
     // 初始化状态
     memset(g_manager, 0, sizeof(status_bar_manager_t));
     g_manager->initialized = true;
-    g_manager->status_bar_container = NULL; // 稍后设置
-    g_manager->update_cb = NULL;            // 稍后设置
-    g_manager->wifi_signal_strength = -1;   // 表示未连接
+    g_manager->status_bar_container = NULL;  // 稍后设置
+    g_manager->update_cb = NULL;             // 稍后设置
+    g_manager->wifi_signal_strength = -1;    // 表示未连接
+    g_manager->tcp_client_connected = false; // 默认TCP客户端未连接
 
     // 初始化图标数组
     for (int i = 0; i < STATUS_ICON_MAX; i++) {
@@ -143,10 +146,10 @@ esp_err_t status_bar_manager_set_container(lv_obj_t* status_bar_container,
         }
     }
 
-    ESP_LOGI(TAG, "Status bar manager container and timer set successfully");
-    return ESP_OK;
+    // 设置默认TCP连接状态图标（断开状态）
+    status_bar_manager_set_tcp_client_status(false);
 
-    ESP_LOGI(TAG, "Status bar manager initialized successfully");
+    ESP_LOGI(TAG, "Status bar manager container and timer set successfully");
     return ESP_OK;
 }
 
@@ -290,6 +293,29 @@ esp_err_t status_bar_manager_set_audio_status(bool is_receiving) {
 
     g_manager->audio_receiving = is_receiving;
     return status_bar_manager_show_icon(STATUS_ICON_MUSIC, is_receiving);
+}
+
+/**
+ * @brief 设置TCP客户端连接状态
+ */
+esp_err_t status_bar_manager_set_tcp_client_status(bool has_client_connected) {
+    if (g_manager == NULL) {
+        ESP_LOGE(TAG, "Status bar manager not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    g_manager->tcp_client_connected = has_client_connected;
+
+    // 先隐藏两个TCP状态图标
+    status_bar_manager_show_icon(STATUS_ICON_PLUGS_DISCONNECTED, false);
+    status_bar_manager_show_icon(STATUS_ICON_PLUGS_CONNECTED, false);
+
+    // 根据连接状态显示对应图标
+    if (has_client_connected) {
+        return status_bar_manager_show_icon(STATUS_ICON_PLUGS_CONNECTED, true);
+    } else {
+        return status_bar_manager_show_icon(STATUS_ICON_PLUGS_DISCONNECTED, true);
+    }
 }
 
 /**

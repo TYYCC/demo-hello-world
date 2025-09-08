@@ -82,18 +82,10 @@ typedef struct {
  * @param channels 通道值数组 (0-1000)
  * @return 编码后的帧长度, 失败返回0
  */
-size_t telemetry_protocol_create_rc_frame(uint8_t* buffer, size_t buffer_size, uint8_t channel_count,
-                                          const uint16_t* channels);
+size_t telemetry_protocol_create_rc_frame(uint8_t* buffer, size_t buffer_size,
+                                          uint8_t channel_count, const uint16_t* channels);
 
-/**
- * @brief 编码心跳帧
- *
- * @param buffer 用于存储编码后数据的缓冲区
- * @param buffer_size 缓冲区大小
- * @param device_status 设备状态
- * @return 编码后的帧长度, 失败返回0
- */
-size_t telemetry_protocol_create_heartbeat_frame(uint8_t* buffer, size_t buffer_size, uint8_t device_status);
+// 心跳帧创建函数已移除，心跳包由独立的TCP服务器处理
 
 /**
  * @brief 编码扩展命令帧
@@ -105,8 +97,8 @@ size_t telemetry_protocol_create_heartbeat_frame(uint8_t* buffer, size_t buffer_
  * @param param_len 参数长度
  * @return 编码后的帧长度, 失败返回0
  */
-size_t telemetry_protocol_create_ext_command(uint8_t* buffer, size_t buffer_size, uint8_t cmd_id, const uint8_t* params,
-                                             uint8_t param_len);
+size_t telemetry_protocol_create_ext_command(uint8_t* buffer, size_t buffer_size, uint8_t cmd_id,
+                                             const uint8_t* params, uint8_t param_len);
 
 /**
  * @brief 解析收到的数据帧
