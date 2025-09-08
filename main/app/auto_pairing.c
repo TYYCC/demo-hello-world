@@ -64,6 +64,7 @@ static EventGroupHandle_t g_pairing_event_group = NULL;
 static void create_pairing_window(void);
 static void destroy_pairing_window(void);
 static void update_pairing_status(const char* status_text);
+static void pairing_window_close_cb(lv_timer_t* timer);
 static void countdown_timer_cb(void* arg);
 static void pairing_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
 static void start_ap_hotspot(void);
@@ -156,7 +157,7 @@ static void create_pairing_window(void) {
 
     // 创建内容容器
     lv_obj_t* container = lv_obj_create(g_pairing_window);
-    lv_obj_set_size(container, 200, 200);
+    lv_obj_set_size(container, 200, 180);
     lv_obj_center(container);
     lv_obj_set_style_bg_color(container, lv_color_white(), 0);
     lv_obj_set_style_border_width(container, 0, 0);
@@ -170,7 +171,7 @@ static void create_pairing_window(void) {
     // 创建旋转加载动画
     g_loading_spinner = lv_spinner_create(container, 1500,27);
     lv_obj_set_size(g_loading_spinner, 70, 70);
-    lv_obj_align(g_loading_spinner, LV_ALIGN_TOP_MID, 0, 15);
+    lv_obj_align(g_loading_spinner, LV_ALIGN_TOP_MID, 0, 10);
 
     // 创建状态标签
     g_status_label = lv_label_create(container);
@@ -180,7 +181,7 @@ static void create_pairing_window(void) {
     } else {
         lv_label_set_text(g_status_label, "Initializing...");
     }
-    lv_obj_align(g_status_label, LV_ALIGN_BOTTOM_MID, 0, -35);
+    lv_obj_align(g_status_label, LV_ALIGN_BOTTOM_MID, 0, -37);
     if (is_font_loaded()) {
         lv_obj_set_style_text_font(g_status_label, get_loaded_font(), 0);
     } else {
@@ -192,7 +193,7 @@ static void create_pairing_window(void) {
     // 创建倒计时标签
     g_countdown_label = lv_label_create(container);
     lv_label_set_text_fmt(g_countdown_label, "60");
-    lv_obj_align(g_countdown_label, LV_ALIGN_BOTTOM_MID, 0, -15);
+    lv_obj_align(g_countdown_label, LV_ALIGN_BOTTOM_MID, 0, -5);
     if (is_font_loaded()) {
         lv_obj_set_style_text_font(g_countdown_label, get_loaded_font(), 0);
     } else {
@@ -235,7 +236,7 @@ static void countdown_timer_cb(void* arg) {
         // 更新倒计时标签
         if (g_countdown_label) {
             uint32_t seconds = g_remaining_time % 60;
-            lv_label_set_text_fmt(g_countdown_label, "%02ld",seconds);
+            lv_label_set_text_fmt(g_countdown_label, "%lu", seconds);
         }
 
         // 检查是否有设备连接
@@ -278,16 +279,31 @@ static void countdown_timer_cb(void* arg) {
     } else {
         // 倒计时结束，配对失败
         g_pairing_state = PAIRING_STATE_FAILED;
+        g_remaining_time = 0;
+
+        // 更新状态标签为超时提示
         if (ui_get_current_language() == LANG_CHINESE) {
             update_pairing_status("配对失败 - 超时");
         } else {
             update_pairing_status("Pairing failed - timeout");
         }
 
-        // 2秒后停止配对
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        auto_pairing_stop();
+        // 延迟销毁窗口
+        lv_timer_t* timer = lv_timer_create(pairing_window_close_cb, 2000, NULL);
+        lv_timer_set_repeat_count(timer, 1);
+        return;
     }
+}
+
+/**
+ * @brief 窗口销毁回调函数
+ */
+static void pairing_window_close_cb(lv_timer_t* timer) {
+    if (g_pairing_window) {
+        lv_obj_del(g_pairing_window);
+        g_pairing_window = NULL;
+    }
+    lv_timer_del(timer);
 }
 
 /**
