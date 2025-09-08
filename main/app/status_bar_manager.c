@@ -6,22 +6,23 @@
  */
 
 #include "../UI/inc/status_bar_manager.h"
-#include "background_manager.h"
 #include "../fonts/my_font.h"
-#include "wifi_manager.h"
 #include "audio_receiver.h"
-#include "esp_log.h"
+#include "background_manager.h"
 #include "esp_heap_caps.h"
+#include "esp_log.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
+#include "wifi_manager.h"
 #include <string.h>
+
 
 static const char* TAG = "STATUS_BAR_MANAGER";
 
-#define ICON_SPACING 25  // 图标之间的间距
-#define BATTERY_RIGHT_OFFSET 45  // 电池图标距离右边缘的偏移
+#define ICON_SPACING 25         // 图标之间的间距
+#define BATTERY_RIGHT_OFFSET 45 // 电池图标距离右边缘的偏移
 
 // 状态栏管理器状态结构
 typedef struct {
@@ -29,19 +30,19 @@ typedef struct {
     lv_obj_t* status_bar_container;
     lv_obj_t* time_label;
     lv_obj_t* battery_label;
-    
+
     // 图标数组
     status_icon_t icons[STATUS_ICON_MAX];
-    
+
     // 状态标志
     bool wifi_connected;
     bool ap_running;
     bool audio_receiving;
     int wifi_signal_strength;
-    
+
     // 更新回调
     status_bar_update_cb_t update_cb;
-    
+
     // 更新定时器
     TimerHandle_t update_timer;
 } status_bar_manager_t;
@@ -50,14 +51,13 @@ typedef struct {
 static status_bar_manager_t* g_manager = NULL;
 
 // 图标符号映射
-static const char* icon_symbols[STATUS_ICON_MAX] = {
-    [STATUS_ICON_WIFI_NONE] = MYSYMBOL_NO_WIFI,
-    [STATUS_ICON_WIFI_LOW] = MYSYMBOL_WIFI_LOW,
-    [STATUS_ICON_WIFI_MEDIUM] = MYSYMBOL_WIFI_MEDIUM,
-    [STATUS_ICON_WIFI_HIGH] = MYSYMBOL_WIFI_HIGH,
-    [STATUS_ICON_AP] = MYSYMBOL_BROADCAST,
-    [STATUS_ICON_MUSIC] = MYSYMBOL_MUSIC
-};
+static const char* icon_symbols[STATUS_ICON_MAX] = {[STATUS_ICON_WIFI_NONE] = MYSYMBOL_NO_WIFI,
+                                                    [STATUS_ICON_WIFI_LOW] = MYSYMBOL_WIFI_LOW,
+                                                    [STATUS_ICON_WIFI_MEDIUM] =
+                                                        MYSYMBOL_WIFI_MEDIUM,
+                                                    [STATUS_ICON_WIFI_HIGH] = MYSYMBOL_WIFI_HIGH,
+                                                    [STATUS_ICON_AP] = MYSYMBOL_BROADCAST,
+                                                    [STATUS_ICON_MUSIC] = MYSYMBOL_MUSIC};
 
 // 前向声明
 static void status_bar_update_timer_callback(TimerHandle_t xTimer);
@@ -76,7 +76,8 @@ esp_err_t status_bar_manager_init(void) {
     }
 
     // 使用PSRAM分配内存
-    g_manager = (status_bar_manager_t*)heap_caps_malloc(sizeof(status_bar_manager_t), MALLOC_CAP_SPIRAM);
+    g_manager =
+        (status_bar_manager_t*)heap_caps_malloc(sizeof(status_bar_manager_t), MALLOC_CAP_SPIRAM);
     if (g_manager == NULL) {
         // 如果PSRAM分配失败，尝试内部RAM
         g_manager = (status_bar_manager_t*)malloc(sizeof(status_bar_manager_t));
@@ -93,8 +94,8 @@ esp_err_t status_bar_manager_init(void) {
     memset(g_manager, 0, sizeof(status_bar_manager_t));
     g_manager->initialized = true;
     g_manager->status_bar_container = NULL; // 稍后设置
-    g_manager->update_cb = NULL; // 稍后设置
-    g_manager->wifi_signal_strength = -1;  // 表示未连接
+    g_manager->update_cb = NULL;            // 稍后设置
+    g_manager->wifi_signal_strength = -1;   // 表示未连接
 
     // 初始化图标数组
     for (int i = 0; i < STATUS_ICON_MAX; i++) {
@@ -113,7 +114,8 @@ esp_err_t status_bar_manager_init(void) {
 /**
  * @brief 设置状态栏容器和回调函数
  */
-esp_err_t status_bar_manager_set_container(lv_obj_t* status_bar_container, status_bar_update_cb_t update_cb) {
+esp_err_t status_bar_manager_set_container(lv_obj_t* status_bar_container,
+                                           status_bar_update_cb_t update_cb) {
     if (g_manager == NULL) {
         ESP_LOGE(TAG, "Status bar manager not initialized");
         return ESP_ERR_INVALID_STATE;
@@ -129,13 +131,11 @@ esp_err_t status_bar_manager_set_container(lv_obj_t* status_bar_container, statu
 
     // 创建更新定时器（每秒检查一次）
     if (g_manager->update_timer == NULL) {
-        g_manager->update_timer = xTimerCreate(
-            "status_bar_timer",
-            pdMS_TO_TICKS(1000),  // 1秒间隔
-            pdTRUE,               // 自动重载
-            NULL,                 // 定时器ID
-            status_bar_update_timer_callback
-        );
+        g_manager->update_timer = xTimerCreate("status_bar_timer",
+                                               pdMS_TO_TICKS(1000), // 1秒间隔
+                                               pdTRUE,              // 自动重载
+                                               NULL,                // 定时器ID
+                                               status_bar_update_timer_callback);
 
         if (g_manager->update_timer == NULL) {
             ESP_LOGE(TAG, "Failed to create update timer");
@@ -187,7 +187,7 @@ esp_err_t status_bar_manager_set_fixed_labels(lv_obj_t* time_label, lv_obj_t* ba
 
     g_manager->time_label = time_label;
     g_manager->battery_label = battery_label;
-    
+
     ESP_LOGI(TAG, "Fixed labels set successfully");
     return ESP_OK;
 }
@@ -207,7 +207,7 @@ esp_err_t status_bar_manager_show_icon(status_icon_type_t icon_type, bool show) 
     }
 
     status_icon_t* icon = &g_manager->icons[icon_type];
-    
+
     if (show && !icon->visible) {
         // 需要显示图标
         if (icon->label == NULL) {
@@ -233,6 +233,7 @@ esp_err_t status_bar_manager_show_icon(status_icon_type_t icon_type, bool show) 
 
 /**
  * @brief 根据WiFi信号强度设置WiFi图标
+ * @note STA未连接时总是显示"无WiFi"图标，即使AP正在运行
  */
 esp_err_t status_bar_manager_set_wifi_signal(int signal_strength) {
     if (g_manager == NULL) {
@@ -241,10 +242,10 @@ esp_err_t status_bar_manager_set_wifi_signal(int signal_strength) {
     }
 
     g_manager->wifi_signal_strength = signal_strength;
-    
+
     // 先隐藏所有WiFi图标
     hide_all_wifi_icons();
-    
+
     if (signal_strength >= 0) {
         // 有WiFi连接，根据信号强度选择图标
         status_icon_type_t wifi_icon;
@@ -255,11 +256,11 @@ esp_err_t status_bar_manager_set_wifi_signal(int signal_strength) {
         } else {
             wifi_icon = STATUS_ICON_WIFI_LOW;
         }
-        
+
         g_manager->wifi_connected = true;
         return status_bar_manager_show_icon(wifi_icon, true);
     } else {
-        // 无WiFi连接
+        // STA未连接WiFi - 显示"无WiFi"图标
         g_manager->wifi_connected = false;
         return status_bar_manager_show_icon(STATUS_ICON_WIFI_NONE, true);
     }
@@ -363,7 +364,7 @@ static void status_bar_update_timer_callback(TimerHandle_t xTimer) {
     }
 
     check_and_update_states();
-    
+
     if (g_manager->update_cb != NULL) {
         g_manager->update_cb();
     }
@@ -387,7 +388,7 @@ static void update_icon_positions(void) {
             // 设置图标位置（从右边往左排列）
             lv_obj_align(icon->label, LV_ALIGN_RIGHT_MID, -current_offset, 0);
             icon->x_offset = current_offset;
-            
+
             current_offset += ICON_SPACING;
             visible_count++;
         }
@@ -405,7 +406,7 @@ static esp_err_t create_icon_label(status_icon_type_t icon_type) {
     }
 
     status_icon_t* icon = &g_manager->icons[icon_type];
-    
+
     if (icon->label != NULL) {
         // 标签已存在
         return ESP_OK;
@@ -422,7 +423,7 @@ static esp_err_t create_icon_label(status_icon_type_t icon_type) {
     lv_obj_set_style_text_font(icon->label, &Mysymbol, 0);
     lv_obj_set_style_text_color(icon->label, lv_color_hex(0x000000), 0);
     lv_label_set_text(icon->label, icon_symbols[icon_type]);
-    
+
     // 初始状态为隐藏
     lv_obj_add_flag(icon->label, LV_OBJ_FLAG_HIDDEN);
 
@@ -452,7 +453,7 @@ static void check_and_update_states(void) {
         return;
     }
 
-    // 检查WiFi状态
+    // 检查STA (Station) WiFi连接状态
     wifi_manager_info_t wifi_info = wifi_manager_get_info();
     if (wifi_info.state == WIFI_STATE_CONNECTED) {
         // 获取信号强度
@@ -460,11 +461,15 @@ static void check_and_update_states(void) {
         if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
             // RSSI to percentage conversion (rough approximation)
             int signal_percentage = 0;
-            if (ap_info.rssi >= -50) signal_percentage = 100;
-            else if (ap_info.rssi >= -60) signal_percentage = 70;
-            else if (ap_info.rssi >= -70) signal_percentage = 40;
-            else signal_percentage = 10;
-            
+            if (ap_info.rssi >= -50)
+                signal_percentage = 100;
+            else if (ap_info.rssi >= -60)
+                signal_percentage = 70;
+            else if (ap_info.rssi >= -70)
+                signal_percentage = 40;
+            else
+                signal_percentage = 10;
+
             status_bar_manager_set_wifi_signal(signal_percentage);
         } else {
             status_bar_manager_set_wifi_signal(50); // 默认中等信号
@@ -473,12 +478,14 @@ static void check_and_update_states(void) {
         status_bar_manager_set_wifi_signal(-1); // 未连接
     }
 
+    // 检查AP (Access Point) 状态 - 需要从wifi_manager获取AP运行状态
+    wifi_mode_t wifi_mode;
+    if (esp_wifi_get_mode(&wifi_mode) == ESP_OK) {
+        bool ap_active = (wifi_mode == WIFI_MODE_AP || wifi_mode == WIFI_MODE_APSTA);
+        status_bar_manager_set_ap_status(ap_active);
+    }
+
     // 检查音频接收状态
     bool audio_active = audio_receiver_is_receiving();
     status_bar_manager_set_audio_status(audio_active);
-
-    // 这里可以添加AP状态检查
-    // TODO: 添加AP状态检查函数
-    // bool ap_active = wifi_manager_is_ap_running();
-    // status_bar_manager_set_ap_status(ap_active);
 }
