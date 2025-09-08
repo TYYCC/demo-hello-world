@@ -5,8 +5,9 @@ import time
 import crcmod.predefined
 
 # ----------------- 配置 -----------------
-ESP32_IP = "192.168.97.247"  # 请将此IP地址更改为您ESP32的实际IP地址
+ESP32_IP = "192.168.136.247"  # 请将此IP地址更改为您ESP32的实际IP地址
 ESP32_PORT = 6667
+ESP32_HB_PORT = 7878  # 心跳端口
 
 # ----------------- 协议常量 -----------------
 FRAME_HEADER = 0xAA55
@@ -28,6 +29,27 @@ simulated_telemetry_data = {
 }
 
 # ----------------- 协议打包/解包 -----------------
+
+def create_heartbeat_frame():
+    """ 创建心跳帧 (发送给 ESP32) """
+    # 负载: 1字节设备状态 + 4字节时间戳
+    # 格式化字符串 '<BI' 必须与C语言中的 tcp_server_hb_payload_t 结构体完全匹配
+    # B: uint8_t, I: uint32_t
+    device_status = 1  # 1: 正常运行
+    timestamp = int(time.time())
+    payload = struct.pack('<BI', device_status, timestamp)
+
+    frame_type = FRAME_TYPE_HEARTBEAT
+    # 帧长 = 帧类型字段(1) + 负载
+    length = 1 + len(payload)
+
+    # CRC计算的数据包括：长度、类型、负载
+    crc_data = struct.pack('<B', length) + struct.pack('<B', frame_type) + payload
+    crc = crc16_func(crc_data)
+
+    # 帧头(大端) + 长度(1) + 类型(1) + 负载 + CRC(小端)
+    frame = struct.pack('>HBB', FRAME_HEADER, length, frame_type) + payload + struct.pack('<H', crc)
+    return frame
 
 def create_telemetry_frame():
     """ 创建遥测数据帧 (发送给 ESP32) """
@@ -78,16 +100,43 @@ def parse_and_handle_frame(data):
         throttle = channels[0] if channel_count > 0 else "N/A"
         direction = channels[1] if channel_count > 1 else "N/A"
         print(f"收到遥控数据: 油门={throttle}, 方向={direction}")
-    elif frame_type == FRAME_TYPE_HEARTBEAT:
-        status, = struct.unpack('<B', payload)
-        status_map = {0: "空闲", 1: "正常运行", 2: "错误"}
-        print(f"收到心跳: 设备状态={status_map.get(status, '未知')}")
     else:
         print(f"收到未知类型的帧: {frame_type}")
         
     return True
 
 # ----------------- TCP 客户端任务 -----------------
+
+def heartbeat_sender_task(stop_event):
+    """ 定时发送心跳的线程任务 """
+    while not stop_event.is_set():
+        sock = None
+        try:
+            print(f"正在连接到心跳服务器 ({ESP32_IP}:{ESP32_HB_PORT})...")
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect((ESP32_IP, ESP32_HB_PORT))
+            print("心跳服务器连接成功!")
+
+            while not stop_event.is_set():
+                frame = create_heartbeat_frame()
+                sock.sendall(frame)
+                print(f"--> 发送心跳: {frame.hex()}")
+                # 使用 time.sleep() 等待，并检查 stop_event
+                for _ in range(300): # 30 seconds, check every 0.1s
+                    if stop_event.is_set():
+                        break
+                    time.sleep(0.1)
+        except (ConnectionRefusedError, ConnectionResetError, BrokenPipeError, OSError) as e:
+            print(f"心跳连接出错: {e}")
+        except Exception as e:
+            print(f"发送心跳时发生未知错误: {e}")
+        finally:
+            if sock:
+                sock.close()
+            if not stop_event.is_set():
+                print("心跳连接已关闭。将在5秒后尝试重新连接...")
+                time.sleep(5)
+
 
 def sender_task(sock, stop_event):
     """ 定时发送遥测数据的线程任务 """
@@ -159,14 +208,19 @@ def receiver_task(sock, stop_event):
 def main():
     print("请确保已安装 'crcmod': pip install crcmod")
     
-    while True:
+    stop_event = threading.Event()
+    
+    # 启动心跳线程
+    heartbeat_thread = threading.Thread(target=heartbeat_sender_task, args=(stop_event,), daemon=True)
+    heartbeat_thread.start()
+
+    while not stop_event.is_set():
+        sock = None
         try:
-            print(f"正在连接到 ESP32 ({ESP32_IP}:{ESP32_PORT})...")
+            print(f"正在连接到遥测服务器 ({ESP32_IP}:{ESP32_PORT})...")
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect((ESP32_IP, ESP32_PORT))
-            print("连接成功!")
-            
-            stop_event = threading.Event()
+            print("遥测服务器连接成功!")
             
             sender = threading.Thread(target=sender_task, args=(sock, stop_event), daemon=True)
             receiver = threading.Thread(target=receiver_task, args=(sock, stop_event), daemon=True)
@@ -175,20 +229,29 @@ def main():
             receiver.start()
             
             # 等待任一线程结束
-            while sender.is_alive() and receiver.is_alive():
+            while sender.is_alive() and receiver.is_alive() and not stop_event.is_set():
                 time.sleep(0.1)
 
         except ConnectionRefusedError:
-            print("连接被拒绝。请确保ESP32正在运行并监听端口。")
+            print("遥测连接被拒绝。请确保ESP32正在运行并监听端口。")
         except OSError as e:
-            print(f"连接出错: {e}")
+            print(f"遥测连接出错: {e}")
         except Exception as e:
             print(f"发生未知错误: {e}")
+            stop_event.set() # 发生严重错误时，停止所有线程
         finally:
-            if 'sock' in locals() and sock:
+            if sock:
                 sock.close()
-            print("连接已关闭。将在5秒后尝试重新连接...")
-            time.sleep(5)
+            if not stop_event.is_set():
+                print("遥测连接已关闭。将在5秒后尝试重新连接...")
+                time.sleep(5)
+    
+    print("程序正在退出...")
+    heartbeat_thread.join(timeout=2)
+
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n检测到Ctrl+C，正在关闭程序...")
