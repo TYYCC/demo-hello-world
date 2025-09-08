@@ -9,14 +9,22 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "esp_mac.h"
+#include "esp_netif.h"
+#include "esp_event.h"
+#include "lwip/sockets.h"
+
+#include <stdio.h>
+#include <string.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "lvgl.h"
+
 #include "theme_manager.h"
 #include "ui.h"
-#include <stdio.h>
-#include <string.h>
+#include "my_font.h"
 
 static const char* TAG = "AUTO_PAIRING";
 
@@ -34,10 +42,12 @@ typedef enum {
 static pairing_state_t g_pairing_state = PAIRING_STATE_IDLE;
 static lv_obj_t* g_pairing_window = NULL;
 static lv_obj_t* g_status_label = NULL;
-static lv_obj_t* g_loading_arc = NULL;
+static lv_obj_t* g_loading_spinner = NULL;
+static lv_obj_t* g_countdown_label = NULL;
 static lv_timer_t* g_pairing_timer = NULL;
 static esp_timer_handle_t g_countdown_timer = NULL;
-static uint32_t g_remaining_time = 180; // 3分钟 = 180秒
+static uint32_t g_remaining_time = 60;
+static esp_ip4_addr_t g_client_ip = {0};
 
 // AP配置
 #define PAIRING_AP_SSID_PREFIX "DisplayTerminal_"
@@ -54,12 +64,13 @@ static EventGroupHandle_t g_pairing_event_group = NULL;
 static void create_pairing_window(void);
 static void destroy_pairing_window(void);
 static void update_pairing_status(const char* status_text);
-static void pairing_timer_cb(lv_timer_t* timer);
 static void countdown_timer_cb(void* arg);
+static void pairing_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
 static void start_ap_hotspot(void);
 static void stop_ap_hotspot(void);
 static void send_tcp_command(void);
-static bool simulate_device_connection(void);
+static bool is_device_connected(void);
+
 
 /**
  * @brief 启动自动配对功能
@@ -79,7 +90,7 @@ void auto_pairing_start(void) {
 
     // 重置状态
     g_pairing_state = PAIRING_STATE_WAITING;
-    g_remaining_time = 180;
+    g_remaining_time = 60;
 
     // 创建配对窗口
     create_pairing_window();
@@ -93,7 +104,7 @@ void auto_pairing_start(void) {
     // 启动AP热点
     start_ap_hotspot();
 
-    ESP_LOGI(TAG, "Auto pairing started, 3 minutes countdown begin");
+    ESP_LOGI(TAG, "Auto pairing started, 60 seconds countdown begin");
 }
 
 /**
@@ -129,6 +140,7 @@ void auto_pairing_stop(void) {
         g_pairing_event_group = NULL;
     }
 
+    g_client_ip.addr = 0; // 重置IP
     ESP_LOGI(TAG, "Auto pairing stopped");
 }
 
@@ -144,7 +156,7 @@ static void create_pairing_window(void) {
 
     // 创建内容容器
     lv_obj_t* container = lv_obj_create(g_pairing_window);
-    lv_obj_set_size(container, 250, 200);
+    lv_obj_set_size(container, 200, 200);
     lv_obj_center(container);
     lv_obj_set_style_bg_color(container, lv_color_white(), 0);
     lv_obj_set_style_border_width(container, 0, 0);
@@ -152,37 +164,42 @@ static void create_pairing_window(void) {
     lv_obj_set_style_shadow_color(container, lv_color_black(), 0);
     lv_obj_set_style_shadow_opa(container, LV_OPA_50, 0);
     lv_obj_set_style_radius(container, 10, 0);
+    lv_obj_set_scrollbar_mode(container, LV_SCROLLBAR_MODE_OFF);  // 禁止滚动条显示
+    lv_obj_clear_flag(container, LV_OBJ_FLAG_SCROLLABLE); // 禁止滚动
 
     // 创建旋转加载动画
-    g_loading_arc = lv_arc_create(container);
-    lv_obj_set_size(g_loading_arc, 60, 60);
-    lv_arc_set_range(g_loading_arc, 0, 360);
-    lv_arc_set_value(g_loading_arc, 0);
-    lv_arc_set_bg_angles(g_loading_arc, 0, 360);
-    lv_obj_set_style_arc_width(g_loading_arc, 6, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(g_loading_arc, 6, LV_PART_INDICATOR);
-    lv_obj_align(g_loading_arc, LV_ALIGN_TOP_MID, 0, 30);
+    g_loading_spinner = lv_spinner_create(container, 1500,27);
+    lv_obj_set_size(g_loading_spinner, 70, 70);
+    lv_obj_align(g_loading_spinner, LV_ALIGN_TOP_MID, 0, 15);
 
     // 创建状态标签
     g_status_label = lv_label_create(container);
+    lv_obj_set_width(g_status_label, 180); // 设置宽度以启用自动换行
     if (ui_get_current_language() == LANG_CHINESE) {
         lv_label_set_text(g_status_label, "正在初始化...");
     } else {
         lv_label_set_text(g_status_label, "Initializing...");
     }
-    lv_obj_align(g_status_label, LV_ALIGN_BOTTOM_MID, 0, -40);
-    lv_obj_set_style_text_font(g_status_label, &lv_font_montserrat_16, 0);
+    lv_obj_align(g_status_label, LV_ALIGN_BOTTOM_MID, 0, -35);
+    if (is_font_loaded()) {
+        lv_obj_set_style_text_font(g_status_label, get_loaded_font(), 0);
+    } else {
+        lv_obj_set_style_text_font(g_status_label, &lv_font_montserrat_16, 0);
+    }
     lv_obj_set_style_text_color(g_status_label, lv_color_black(), 0);
+    lv_obj_set_style_text_align(g_status_label, LV_TEXT_ALIGN_CENTER, 0); // 文本居中对齐
 
     // 创建倒计时标签
-    lv_obj_t* countdown_label = lv_label_create(container);
-    lv_label_set_text_fmt(countdown_label, "03:00");
-    lv_obj_align(countdown_label, LV_ALIGN_BOTTOM_MID, 0, -20);
-    lv_obj_set_style_text_font(countdown_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(countdown_label, lv_color_hex(0x666666), 0);
+    g_countdown_label = lv_label_create(container);
+    lv_label_set_text_fmt(g_countdown_label, "60");
+    lv_obj_align(g_countdown_label, LV_ALIGN_BOTTOM_MID, 0, -15);
+    if (is_font_loaded()) {
+        lv_obj_set_style_text_font(g_countdown_label, get_loaded_font(), 0);
+    } else {
+        lv_obj_set_style_text_font(g_countdown_label, &lv_font_montserrat_14, 0);
+    }
+    lv_obj_set_style_text_color(g_countdown_label, lv_color_hex(0x666666), 0);
 
-    // 启动LVGL定时器来旋转加载动画
-    g_pairing_timer = lv_timer_create(pairing_timer_cb, 50, countdown_label);
 }
 
 /**
@@ -193,7 +210,8 @@ static void destroy_pairing_window(void) {
         lv_obj_del(g_pairing_window);
         g_pairing_window = NULL;
         g_status_label = NULL;
-        g_loading_arc = NULL;
+        g_loading_spinner = NULL;
+        g_countdown_label = NULL;
     }
 }
 
@@ -208,33 +226,20 @@ static void update_pairing_status(const char* status_text) {
 }
 
 /**
- * @brief LVGL定时器回调 - 旋转加载动画
- */
-static void pairing_timer_cb(lv_timer_t* timer) {
-    lv_obj_t* countdown_label = (lv_obj_t*)timer->user_data;
-
-    // 旋转加载动画
-    static int angle = 0;
-    angle = (angle + 10) % 360;
-    lv_arc_set_value(g_loading_arc, angle);
-
-    // 更新倒计时显示
-    if (countdown_label && g_remaining_time > 0) {
-        uint32_t minutes = g_remaining_time / 60;
-        uint32_t seconds = g_remaining_time % 60;
-        lv_label_set_text_fmt(countdown_label, "%02lu:%02lu", minutes, seconds);
-    }
-}
-
-/**
  * @brief 倒计时定时器回调
  */
 static void countdown_timer_cb(void* arg) {
     if (g_remaining_time > 0) {
         g_remaining_time--;
 
-        // 模拟设备连接检测 (在倒计时进行到一半时模拟连接成功)
-        if (g_remaining_time == 90 && simulate_device_connection()) {
+        // 更新倒计时标签
+        if (g_countdown_label) {
+            uint32_t seconds = g_remaining_time % 60;
+            lv_label_set_text_fmt(g_countdown_label, "%02ld",seconds);
+        }
+
+        // 检查是否有设备连接
+        if (is_device_connected()) {
             // 设备连接成功
             g_pairing_state = PAIRING_STATE_SUCCESS;
 
@@ -246,10 +251,9 @@ static void countdown_timer_cb(void* arg) {
             // 显示重启提示（双语）
             extern ui_language_t ui_get_current_language(void);
             if (ui_get_current_language() == LANG_CHINESE) {
-                update_pairing_status("重启接收端中，请等待绿灯呼吸闪烁");
+                update_pairing_status("重启接收端中 请等待绿灯呼吸闪烁");
             } else {
-                update_pairing_status(
-                    "Restarting receiver. Please wait for the green light to breathe");
+                update_pairing_status("Restarting receiver. Please wait for the green light to breathe");
             }
 
             // 3秒后显示成功提示
@@ -292,6 +296,10 @@ static void countdown_timer_cb(void* arg) {
 static void start_ap_hotspot(void) {
     ESP_LOGI(TAG, "Starting AP hotspot for pairing");
 
+    // 注册事件处理程序
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &pairing_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, &pairing_event_handler, NULL));
+
     // 获取MAC地址后四位作为SSID后缀
     uint8_t mac[6];
     esp_wifi_get_mac(WIFI_IF_AP, mac);
@@ -313,9 +321,9 @@ static void start_ap_hotspot(void) {
 
     ESP_LOGI(TAG, "AP hotspot started: %s", ssid);
     if (ui_get_current_language() == LANG_CHINESE) {
-        update_pairing_status("正在等待设备连接...");
+        update_pairing_status("正在等待设备连接");
     } else {
-        update_pairing_status("Waiting for device connection...");
+        update_pairing_status("Waiting for device connection");
     }
 }
 
@@ -324,37 +332,101 @@ static void start_ap_hotspot(void) {
  */
 static void stop_ap_hotspot(void) {
     ESP_LOGI(TAG, "Stopping AP hotspot");
+    // 注销事件处理程序
+    ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, pairing_event_handler));
+    ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, pairing_event_handler));
     ESP_ERROR_CHECK(esp_wifi_stop());
 }
 
 /**
- * @brief 模拟设备连接检测
+ * @brief 事件处理程序
  */
-static bool simulate_device_connection(void) {
-    // 这里可以实现真实的连接检测逻辑
-    // 目前使用随机模拟，在50%的概率下"检测到"连接
-    bool connected = (esp_random() % 2) == 0;
-
-    if (connected) {
-        ESP_LOGI(TAG, "Simulated device connection detected");
-    } else {
-        ESP_LOGI(TAG, "No device connection detected");
+static void pairing_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
+        wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
+        ESP_LOGI(TAG, "station "MACSTR" join, AID=%d", MAC2STR(event->mac), event->aid);
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+        wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
+        ESP_LOGI(TAG, "station "MACSTR" leave, AID=%d", MAC2STR(event->mac), event->aid);
+        g_client_ip.addr = 0; // 设备断开时清除IP
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_AP_STAIPASSIGNED) {
+        ip_event_ap_staipassigned_t* event = (ip_event_ap_staipassigned_t*) event_data;
+        ESP_LOGI(TAG, "station ip: " IPSTR, IP2STR(&event->ip));
+        g_client_ip = event->ip; // 保存分配的IP地址
     }
+}
 
-    return connected;
+/**
+ * @brief 检测是否有设备连接到AP
+ */
+static bool is_device_connected(void) {
+    return g_client_ip.addr != 0;
 }
 
 /**
  * @brief 发送TCP命令
  */
 static void send_tcp_command(void) {
-    ESP_LOGI(TAG, "TCP command sent to receiver.");
-    // 这里可以实现真实的TCP通信逻辑
-    // 目前只打印日志信息
+    if (g_client_ip.addr == 0) {
+        ESP_LOGE(TAG, "Client IP not available, cannot send TCP command.");
+        return;
+    }
+
+    char addr_str[16];
+    inet_ntoa_r(g_client_ip, addr_str, sizeof(addr_str) - 1);
+
+    const int port = 1100;
+    struct sockaddr_in dest_addr;
+    dest_addr.sin_addr.s_addr = g_client_ip.addr;
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(port);
+
+    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    if (sock < 0) {
+        ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+        return;
+    }
+    ESP_LOGI(TAG, "Socket created, connecting to %s:%d", addr_str, port);
+
+    int err = connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+    if (err != 0) {
+        ESP_LOGE(TAG, "Socket unable to connect: errno %d", errno);
+        close(sock);
+        return;
+    }
+    ESP_LOGI(TAG, "Successfully connected");
+
+    // Construct reboot command based on the protocol document
+    // Frame: Header(2) + Length(1) + Type(1) + Payload(N) + CRC16(2)
+    // Reboot command: Type=0x05, Payload={CmdID=0x15, ParamLen=0, Params=""}
+    // Data for CRC: [Length, Type, Payload]
+    // Length = sizeof(Type) + sizeof(Payload) + sizeof(CRC) = 1 + 2 + 2 = 5
+    // Payload = {0x15, 0x00}
+    // CRC data = {0x05, 0x05, 0x15, 0x00} -> CRC16-Modbus = 0x4E85
+    uint8_t reboot_cmd[] = {
+        0xAA, 0x55, // Header
+        0x05,       // Length
+        0x05,       // Type: 特殊命令
+        0x15,       // Command ID: 重启
+        0x00,       // Param length
+        0x4E, 0x85  // CRC16
+    };
+
+    err = send(sock, reboot_cmd, sizeof(reboot_cmd), 0);
+    if (err < 0) {
+        ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+    }
+
+    ESP_LOGI(TAG, "Shutting down socket and closing connection");
+    shutdown(sock, 0);
+    close(sock);
+    
+    ESP_LOGI(TAG, "TCP command sent to receiver: REBOOT");
 }
 
 /**
  * @brief 获取配对状态
+ * @return 
  */
 pairing_state_t auto_pairing_get_state(void) { return g_pairing_state; }
 

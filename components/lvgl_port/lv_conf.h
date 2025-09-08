@@ -134,6 +134,7 @@
 #define LV_USE_MSGBOX     1
 #define LV_USE_IMG        1
 #define LV_USE_CANVAS     1
+#define LV_USE_SPINNER    1
 
 
 /*==================
