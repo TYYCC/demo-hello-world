@@ -14,7 +14,6 @@
 #include "lvgl.h"
 #include <stdbool.h>
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -25,7 +24,6 @@ typedef enum {
     STATUS_ICON_WIFI_LOW,           // 低WiFi信号
     STATUS_ICON_WIFI_MEDIUM,        // 中等WiFi信号
     STATUS_ICON_WIFI_HIGH,          // 高WiFi信号
-    STATUS_ICON_AP,                 // AP模式
     STATUS_ICON_MUSIC,              // 音频接收模式
     STATUS_ICON_PLUGS_DISCONNECTED, // TCP客户端断开
     STATUS_ICON_PLUGS_CONNECTED,    // TCP客户端连接且有心跳
@@ -80,13 +78,6 @@ esp_err_t status_bar_manager_show_icon(status_icon_type_t icon_type, bool show);
  * @return esp_err_t
  */
 esp_err_t status_bar_manager_set_wifi_signal(int signal_strength);
-
-/**
- * @brief 设置AP模式状态
- * @param is_running AP是否运行
- * @return esp_err_t
- */
-esp_err_t status_bar_manager_set_ap_status(bool is_running);
 
 /**
  * @brief 设置音频接收状态

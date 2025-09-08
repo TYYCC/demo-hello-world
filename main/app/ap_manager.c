@@ -1,3 +1,12 @@
+/*
+ * AP管理器已被删除，所有AP相关功能已被移除
+ * 如果需要恢复AP功能，请取消注释此文件内容
+ * ===================================================
+ */
+
+// 整个文件已被注释掉
+#if 0
+
 #include "ap_manager.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -366,3 +375,5 @@ static esp_err_t save_password_to_nvs(const char* password) {
 
     return ret;
 }
+
+#endif /* AP manager disabled */

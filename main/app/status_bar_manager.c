@@ -5,7 +5,7 @@
  * @date 2025-09-01
  */
 
-#include "../UI/inc/status_bar_manager.h"
+#include "status_bar_manager.h"
 #include "../fonts/my_font.h"
 #include "audio_receiver.h"
 #include "background_manager.h"
@@ -36,14 +36,9 @@ typedef struct {
 
     // 状态标志
     bool wifi_connected;
-    bool ap_running;
     bool audio_receiving;
     bool tcp_client_connected;
     int wifi_signal_strength;
-
-    // AP状态控制标志，避免异步时序问题
-    uint32_t ap_stop_timestamp; // AP停止的时间戳
-    bool ap_force_stopped;      // 是否强制停止了AP
 
     // 更新回调
     status_bar_update_cb_t update_cb;
@@ -61,7 +56,6 @@ static const char* icon_symbols[STATUS_ICON_MAX] = {
     [STATUS_ICON_WIFI_LOW] = MYSYMBOL_WIFI_LOW,
     [STATUS_ICON_WIFI_MEDIUM] = MYSYMBOL_WIFI_MEDIUM,
     [STATUS_ICON_WIFI_HIGH] = MYSYMBOL_WIFI_HIGH,
-    [STATUS_ICON_AP] = MYSYMBOL_BROADCAST,
     [STATUS_ICON_MUSIC] = MYSYMBOL_MUSIC,
     [STATUS_ICON_PLUGS_DISCONNECTED] = MYSYMBOL_PLUGS,
     [STATUS_ICON_PLUGS_CONNECTED] = MYSYMBOL_PLUGS_CONNECTED};
@@ -272,28 +266,6 @@ esp_err_t status_bar_manager_set_wifi_signal(int signal_strength) {
         g_manager->wifi_connected = false;
         return status_bar_manager_show_icon(STATUS_ICON_WIFI_NONE, true);
     }
-}
-
-/**
- * @brief 设置AP模式状态
- */
-esp_err_t status_bar_manager_set_ap_status(bool is_running) {
-    if (g_manager == NULL) {
-        ESP_LOGD(TAG, "Status bar manager not initialized, AP status update deferred");
-        return ESP_OK;
-    }
-
-    // 记录AP停止的时间戳和状态，避免异步时序问题
-    if (!is_running) {
-        g_manager->ap_stop_timestamp = xTaskGetTickCount();
-        g_manager->ap_force_stopped = true;
-        ESP_LOGD(TAG, "AP强制停止标记已设置，时间戳: %u", g_manager->ap_stop_timestamp);
-    } else {
-        g_manager->ap_force_stopped = false;
-    }
-
-    g_manager->ap_running = is_running;
-    return status_bar_manager_show_icon(STATUS_ICON_AP, is_running);
 }
 
 /**
@@ -516,25 +488,6 @@ static void check_and_update_states(void) {
         }
     } else {
         status_bar_manager_set_wifi_signal(-1); // 未连接
-    }
-
-    // 如果AP被强制停止，保持停止状态一段时间
-    if (g_manager->ap_force_stopped) {
-        uint32_t current_time = xTaskGetTickCount();
-        uint32_t time_diff = current_time - g_manager->ap_stop_timestamp;
-
-        // 如果距离强制停止的时间小于3秒，强制保持停止状态
-        if (time_diff < pdMS_TO_TICKS(3000)) {
-            if (g_manager->ap_running) {
-                ESP_LOGD(TAG, "AP强制停止保护期内，保持停止状态 (剩余: %u ms)",
-                         pdTICKS_TO_MS(pdMS_TO_TICKS(3000) - time_diff));
-                status_bar_manager_set_ap_status(false);
-            }
-        } else {
-            // 保护期结束，重置强制停止标记
-            g_manager->ap_force_stopped = false;
-            ESP_LOGD(TAG, "AP强制停止保护期结束");
-        }
     }
 
     // 检查音频接收状态

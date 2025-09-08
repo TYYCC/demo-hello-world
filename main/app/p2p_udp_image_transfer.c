@@ -268,10 +268,6 @@ static esp_err_t wifi_init_p2p(void) {
         set_connection_state(P2P_STATE_AP_STARTING, "Starting AP");
         ESP_LOGI(TAG, "Wi-Fi AP started: %s", wifi_config.ap.ssid);
 
-        // 通知状态栏管理器AP已启动
-        extern esp_err_t status_bar_manager_set_ap_status(bool is_running);
-        status_bar_manager_set_ap_status(true);
-        ESP_LOGI(TAG, "P2P AP状态已更新为运行中");
     } else {
         // STA模式配置 - 使用已存在的网络接口
         g_netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -831,21 +827,11 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
         case WIFI_EVENT_AP_START:
             set_connection_state(P2P_STATE_AP_STARTING, "Starting AP");
             ESP_LOGI(TAG, "Wi-Fi AP started (p2p_udp)");
-
-            // 通知状态栏管理器AP已启动
-            extern esp_err_t status_bar_manager_set_ap_status(bool is_running);
-            status_bar_manager_set_ap_status(true);
-            ESP_LOGI(TAG, "P2P事件AP状态已更新为运行中 (p2p_udp)");
             break;
 
         case WIFI_EVENT_AP_STOP:
             set_connection_state(P2P_STATE_IDLE, "AP stopped");
-            ESP_LOGI(TAG, "Wi-Fi AP stopped");
-
-            // 通知状态栏管理器AP已停止
-            extern esp_err_t status_bar_manager_set_ap_status(bool is_running);
-            status_bar_manager_set_ap_status(false);
-            ESP_LOGI(TAG, "P2P事件AP状态已更新为停止");
+            ESP_LOGI(TAG, "Wi-Fi AP stopped (p2p_udp)");
             break;
 
         case WIFI_EVENT_STA_START:

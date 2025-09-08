@@ -216,11 +216,6 @@ esp_err_t wifi_manager_stop(void) {
         memset(g_wifi_info.ssid, 0, sizeof(g_wifi_info.ssid)); // 清空SSID
         if (g_event_cb)
             g_event_cb();
-
-        // 通知状态栏管理器AP已停止
-        extern esp_err_t status_bar_manager_set_ap_status(bool is_running);
-        status_bar_manager_set_ap_status(false);
-        ESP_LOGI(TAG, "AP状态已更新为停止");
     }
     if (s_wifi_event_group) {
         vEventGroupDelete(s_wifi_event_group);
