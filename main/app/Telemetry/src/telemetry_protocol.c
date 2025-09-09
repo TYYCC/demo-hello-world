@@ -1,6 +1,9 @@
 #include "telemetry_protocol.h"
 #include <stdbool.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 /**
  * @brief CRC16 查表
@@ -315,4 +318,94 @@ size_t telemetry_protocol_parse_frame(const uint8_t* buffer, size_t len, parsed_
     frame->crc_ok = (received_crc == calculated_crc);
 
     return total_frame_len;
+}
+
+/**
+ * @brief 发送图传配置命令并等待ACK响应
+ */
+size_t telemetry_protocol_send_image_config_and_wait_ack(int socket_fd, uint8_t cmd_id,
+                                                        const uint8_t* params, uint8_t param_len,
+                                                        uint8_t* ack_buffer, size_t ack_buffer_size,
+                                                        uint32_t timeout_ms) {
+    if (socket_fd < 0 || !ack_buffer || ack_buffer_size == 0) {
+        return 0;
+    }
+
+    // 创建图传命令帧
+    uint8_t cmd_buffer[256];
+    size_t cmd_len = telemetry_protocol_create_image_command(cmd_buffer, sizeof(cmd_buffer),
+                                                           cmd_id, params, param_len);
+    if (cmd_len == 0) {
+        return 0;
+    }
+
+    // 发送命令
+    ssize_t sent = send(socket_fd, cmd_buffer, cmd_len, 0);
+    if (sent != (ssize_t)cmd_len) {
+        return 0;
+    }
+
+    // 设置接收超时
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        return 0;
+    }
+
+    // 接收ACK响应
+    ssize_t received = recv(socket_fd, ack_buffer, ack_buffer_size, 0);
+    if (received <= 0) {
+        return 0;
+    }
+
+    return (size_t)received;
+}
+
+/**
+ * @brief 解析ACK响应帧
+ */
+bool telemetry_protocol_parse_ack_frame(const uint8_t* buffer, size_t buffer_size,
+                                       uint8_t* original_frame_type, uint8_t* ack_status,
+                                       const uint8_t** response_data, size_t* response_len) {
+    if (!buffer || !original_frame_type || !ack_status || !response_data || !response_len) {
+        return false;
+    }
+
+    // 解析帧
+    parsed_frame_t parsed_frame;
+    size_t frame_len = telemetry_protocol_parse_frame(buffer, buffer_size, &parsed_frame);
+    if (frame_len == 0 || !parsed_frame.crc_ok) {
+        return false;
+    }
+
+    // 检查是否为ACK帧
+    if (parsed_frame.header.type != FRAME_TYPE_ACK) {
+        return false;
+    }
+
+    // 检查负载长度
+    if (parsed_frame.payload_len < 3) { // 至少包含original_frame_type, ack_status, response_len
+        return false;
+    }
+
+    // 解析ACK负载
+    const uint8_t* payload = parsed_frame.payload;
+    *original_frame_type = payload[0];
+    *ack_status = payload[1];
+    *response_len = payload[2];
+
+    // 检查响应数据长度是否合理
+    if (*response_len > parsed_frame.payload_len - 3) {
+        return false;
+    }
+
+    // 设置响应数据指针
+    if (*response_len > 0) {
+        *response_data = &payload[3];
+    } else {
+        *response_data = NULL;
+    }
+
+    return true;
 }

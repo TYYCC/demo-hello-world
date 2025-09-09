@@ -56,7 +56,7 @@ else()
         "app/audio_receiver.c"
         "app/auto_pairing.c"
 
-        # app中遥测相关的文件，数量较多
+        # app中遥测相关的文件
         "app/Telemetry/src/telemetry_protocol.c"
         "app/Telemetry/src/telemetry_tcp.c"
         "app/Telemetry/src/telemetry_data_converter.c"
@@ -64,6 +64,7 @@ else()
         "app/Telemetry/src/telemetry_receiver.c"
         "app/Telemetry/src/telemetry_sender.c"
         "app/Telemetry/src/tcp_server_hb.c"
+        "app/Telemetry/src/tcp_command_server.c"
         
         # 字体相关文件
         "fonts/font_init.c"

@@ -153,6 +153,15 @@ void tcp_server_hb_print_status(void);
  */
 uint32_t tcp_server_hb_get_active_client_count(void);
 
+/**
+ * @brief 广播图传配置命令给所有连接的客户端
+ * 
+ * @param config_data 配置数据
+ * @param config_len 配置数据长度
+ * @return int 成功发送的客户端数量，失败返回负数
+ */
+int tcp_server_hb_send_image_config(const uint8_t* config_data, size_t config_len);
+
 #ifdef __cplusplus
 }
 #endif

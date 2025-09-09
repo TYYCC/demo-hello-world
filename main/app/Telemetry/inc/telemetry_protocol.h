@@ -213,8 +213,37 @@ size_t telemetry_protocol_create_ack_frame(uint8_t* buffer, size_t buffer_size,
                                           const uint8_t* response_data, size_t response_len);
 
 /**
- * @brief CRC16校验函数
- *
+ * @brief 发送图传配置命令并等待ACK响应
+ * @param socket_fd TCP套接字文件描述符
+ * @param cmd_id 图传命令ID
+ * @param params 命令参数
+ * @param param_len 参数长度
+ * @param ack_buffer 接收ACK响应的缓冲区
+ * @param ack_buffer_size ACK缓冲区大小
+ * @param timeout_ms 超时时间(毫秒)
+ * @return 接收到的ACK数据长度，0表示失败
+ */
+size_t telemetry_protocol_send_image_config_and_wait_ack(int socket_fd, uint8_t cmd_id,
+                                                        const uint8_t* params, uint8_t param_len,
+                                                        uint8_t* ack_buffer, size_t ack_buffer_size,
+                                                        uint32_t timeout_ms);
+
+/**
+ * @brief 解析ACK响应帧
+ * @param buffer ACK帧数据
+ * @param buffer_size 数据长度
+ * @param original_frame_type 输出：原始帧类型
+ * @param ack_status 输出：ACK状态码
+ * @param response_data 输出：响应数据指针
+ * @param response_len 输出：响应数据长度
+ * @return true解析成功，false解析失败
+ */
+bool telemetry_protocol_parse_ack_frame(const uint8_t* buffer, size_t buffer_size,
+                                       uint8_t* original_frame_type, uint8_t* ack_status,
+                                       const uint8_t** response_data, size_t* response_len);
+
+/**
+ * @brief 计算CRC16校验值
  * @param data 数据指针
  * @param length 数据长度
  * @return CRC16校验值

@@ -538,4 +538,44 @@ void tcp_server_hb_print_status(void) {
     }
 }
 
+// 通过心跳服务器广播图传配置命令
+int tcp_server_hb_send_image_config(const uint8_t* config_data, size_t config_len) {
+    if (!config_data || config_len == 0) {
+        ESP_LOGE(TAG, "配置数据参数无效");
+        return -1;
+    }
+
+    // 创建图传配置命令帧
+    uint8_t command_buffer[256];
+    size_t command_len = telemetry_protocol_create_image_command(command_buffer, sizeof(command_buffer),
+                                                               IMAGE_CMD_ID_JPEG_QUALITY, config_data, config_len);
+    
+    if (command_len == 0) {
+        ESP_LOGE(TAG, "创建图传配置命令帧失败");
+        return -1;
+    }
+
+    // 通过心跳服务器广播给所有连接的客户端
+    uint32_t sent_count = 0;
+    for (int i = 0; i < TCP_SERVER_HB_MAX_CLIENTS; i++) {
+        if (g_hb_server.clients[i].state == TCP_SERVER_HB_CLIENT_CONNECTED) {
+            int sent = send(g_hb_server.clients[i].socket_fd, command_buffer, command_len, 0);
+            if (sent == command_len) {
+                sent_count++;
+                ESP_LOGI(TAG, "图传配置命令已发送给客户端 %d", i);
+            } else {
+                ESP_LOGW(TAG, "向客户端 %d 发送图传配置命令失败: %s", i, strerror(errno));
+            }
+        }
+    }
+
+    if (sent_count == 0) {
+        ESP_LOGW(TAG, "没有活跃的客户端连接，无法发送图传配置命令");
+        return -1; 
+    }
+    
+    // 返回连接成功的客户端数量
+    return sent_count;
+}
+
 uint32_t tcp_server_hb_get_active_client_count(void) { return g_hb_server.stats.active_clients; }
