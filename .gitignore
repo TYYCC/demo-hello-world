@@ -90,6 +90,7 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 /others/MP4
+/others/pic
 
 
 # ========================================

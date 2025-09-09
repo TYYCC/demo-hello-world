@@ -1,7 +1,7 @@
 #ifndef TCP_CLIENT_TELEMETRY_H
 #define TCP_CLIENT_TELEMETRY_H
 
-#include "../../inc/tcp_common_protocol.h"
+#include "tcp_common_protocol.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include "freertos/FreeRTOS.h"

@@ -7,7 +7,7 @@ if(EN_RECEIVER_MODE)
 
     idf_component_register(
         SRCS ${MAIN_SRCS}
-        INCLUDE_DIRS "inc" "${CMAKE_SOURCE_DIR}/components/Receiver/inc"
+        INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/components/Receiver/Communication/inc" "${CMAKE_SOURCE_DIR}/components/Receiver/other/inc" "${CMAKE_SOURCE_DIR}/components/Receiver/tcp_server/inc"
         REQUIRES esp_timer Receiver driver spi_flash esp_common
     )
     

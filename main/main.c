@@ -2,7 +2,7 @@
  * @Author: tidycraze 2595256284@qq.com
  * @Date: 2025-07-28 11:29:59
  * @LastEditors: tidycraze 2595256284@qq.com
- * @LastEditTime: 2025-09-05 13:22:11
+ * @LastEditTime: 2025-09-09 16:33:30
  * @FilePath: \demo-hello-world\main\main.c
  * @Description: 主函数入口
  *
@@ -14,16 +14,17 @@
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include <inttypes.h>
+#include "esp_heap_caps.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "esp_heap_caps.h"
-#include "led_status_manager.h"
 #include "spi_slave_receiver.h"
 #include "usb_device_receiver.h"
+#include "led_status_manager.h"
 #include "wifi_pairing_manager.h"
 #include "task.h"
+#include "tcp_server.h"
 
 static const char* TAG = "main";
 
@@ -91,6 +92,9 @@ void app_main(void) {
         ESP_LOGI(TAG, "Event-driven TCP manager started successfully");
         log_heap_info("After TCP Manager Init");
     }
+
+    // 启动TCP服务器
+    tcp_server_start();
 
     while (1) {
         ESP_LOGI(TAG, "Receiver running, free heap: %lu bytes",

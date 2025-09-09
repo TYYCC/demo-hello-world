@@ -7,7 +7,7 @@
 #include "freertos/task.h"
 #include "freertos/timers.h"
 #include "esp_log.h"
-#include "../../inc/tcp_common_protocol.h"
+#include "tcp_common_protocol.h"
 
 #ifdef __cplusplus
 extern "C" {
