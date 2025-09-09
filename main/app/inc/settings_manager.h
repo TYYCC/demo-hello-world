@@ -11,6 +11,9 @@ extern "C" {
 typedef enum {
     IMAGE_TRANSFER_MODE_TCP,
     IMAGE_TRANSFER_MODE_UDP,
+    IMAGE_TRANSFER_MODE_RAW,   // 原始模式
+    IMAGE_TRANSFER_MODE_LZ4,   // LZ4解码模式
+    IMAGE_TRANSFER_MODE_JPEG   // JPEG解码模式
 } image_transfer_mode_t;
 
 /**

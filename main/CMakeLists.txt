@@ -43,8 +43,6 @@ else()
         "app/game/game_snake.c"
 
         # app文件
-        "app/wifi_image_transfer.c"
-        "app/p2p_udp_image_transfer.c"
         "app/serial_display.c"
         "app/calibration_manager.c"
         "app/lvgl_main.c"
@@ -55,7 +53,17 @@ else()
         "app/lsm6ds_control.c"
         "app/audio_receiver.c"
         "app/auto_pairing.c"
-        "app/lz4_image_decoder.c"
+        
+        # 图像传输模块
+        "app/image_transfer/src/image_transfer_app.c"
+        "app/image_transfer/src/jpeg_decoder_service.c"
+        "app/image_transfer/src/lz4_decoder_service.c"
+        "app/image_transfer/src/lz4_image_decoder.c"
+        "app/image_transfer/src/raw_data_service.c"
+        "app/image_transfer/src/tcp_server_service.c"
+        "app/image_transfer/src/ui_mapping_service.c"
+        "app/image_transfer/src/wifi_image_transfer.c"
+        "app/image_transfer/src/p2p_udp_image_transfer.c"
 
         # app中遥测相关的文件
         "app/Telemetry/src/telemetry_protocol.c"
@@ -74,7 +82,7 @@ else()
 
     idf_component_register(
         SRCS ${MAIN_SRCS}
-        INCLUDE_DIRS "inc" "UI/inc" "app/inc" "app/game" "fonts" "app/Telemetry/inc"
+        INCLUDE_DIRS "inc" "UI/inc" "app/inc" "app/game" "fonts" "app/Telemetry/inc" "app/image_transfer/inc"
         REQUIRES lvgl esp_timer lvgl_port Peripherals lz4-dev driver spiffs spi_flash esp_common
     )
     

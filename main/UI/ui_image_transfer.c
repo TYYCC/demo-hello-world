@@ -4,6 +4,7 @@
  * @author TidyCraze
  * @date 2025-08-15
  */
+#include "ui_image_transfer.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -20,6 +21,8 @@
 #include "settings_manager.h"
 #include "wifi_image_transfer.h" // For TCP mode
 #include "p2p_udp_image_transfer.h" // For UDP mode
+#include "image_transfer_app.h" // 新的模块化图像传输应用
+#include "../../app/image_transfer/inc/raw_data_service.h"
 
 
 static const char* TAG = "UI_IMG_TRANSFER";
@@ -249,10 +252,13 @@ static void start_transfer_service(image_transfer_mode_t mode) {
         }
     } else { // IMAGE_TRANSFER_MODE_TCP
         ESP_LOGI(TAG, "Starting TCP service...");
-        if (wifi_image_transfer_start(6556)) {
-            ret = ESP_OK;
-            s_ui_event_group = wifi_image_transfer_get_ui_event_group(); // Get event group
-            lv_label_set_text(s_status_label, "Status: TCP Server Running");
+        // 使用新的模块化图像传输应用
+        ret = image_transfer_app_init(IMAGE_TRANSFER_MODE_RAW); // 默认使用原始模式
+        if (ret == ESP_OK) {
+            ret = image_transfer_app_start_tcp_server(6556);
+            if (ret == ESP_OK) {
+                lv_label_set_text(s_status_label, "Status: TCP Server Running");
+            }
         }
     }
 
@@ -276,7 +282,8 @@ static void stop_transfer_service(void) {
     if (s_current_mode == IMAGE_TRANSFER_MODE_UDP) {
         p2p_udp_image_transfer_deinit();
     } else { // IMAGE_TRANSFER_MODE_TCP
-        wifi_image_transfer_stop();
+        image_transfer_app_stop_tcp_server();
+        image_transfer_app_deinit();
         s_ui_event_group = NULL;
     }
 
@@ -341,32 +348,31 @@ static void status_update_timer_callback(lv_timer_t* timer)
 
 static void image_render_timer_callback(lv_timer_t* timer)
 {
-    if (!s_is_running || s_current_mode != IMAGE_TRANSFER_MODE_TCP || !s_ui_event_group) {
+    if (!s_is_running || s_current_mode != IMAGE_TRANSFER_MODE_TCP) {
         return;
     }
 
-    // Check if a new frame is ready without blocking
-    EventBits_t bits = xEventGroupWaitBits(s_ui_event_group, FRAME_READY_BIT, pdTRUE, pdFALSE, 0);
-
-    if ((bits & FRAME_READY_BIT) != 0) {
-        uint8_t* frame_buffer = NULL;
-        int width = 0;
-        int height = 0;
-        
-        // Lock the buffer to get the pointer
-        if (wifi_image_transfer_get_latest_frame(&frame_buffer, &width, &height) == ESP_OK) {
-            if (frame_buffer && width > 0 && height > 0) {
-                 if (s_img_obj && lv_obj_is_valid(s_img_obj)) {
-                    s_img_dsc.header.w = width;
-                    s_img_dsc.header.h = height;
-                    s_img_dsc.data_size = width * height * 2; // Assuming RGB565 (2 bytes per pixel)
+    // 使用新的模块化架构获取帧数据
+    uint8_t* frame_buffer = NULL;
+    size_t frame_size = 0;
+    
+    // 获取最新帧数据
+    if (image_transfer_app_get_mode() == IMAGE_TRANSFER_MODE_RAW) {
+        // 原始模式
+        if (raw_data_service_get_latest_frame(&frame_buffer, &frame_size)) {
+            if (frame_buffer && frame_size > 0) {
+                if (s_img_obj && lv_obj_is_valid(s_img_obj)) {
+                    // 假设原始数据已经是RGB565格式
+                    s_img_dsc.header.w = 320; // 默认宽度
+                    s_img_dsc.header.h = 240; // 默认高度
+                    s_img_dsc.data_size = frame_size;
                     s_img_dsc.data = frame_buffer;
                     
                     lv_img_set_src(s_img_obj, &s_img_dsc);
-                 }
+                }
             }
-            // IMPORTANT: Unlock the buffer so the decode task can write to it again
-            wifi_image_transfer_frame_unlock();
+            // 解锁帧数据
+            raw_data_service_frame_unlock();
         }
     }
 }
