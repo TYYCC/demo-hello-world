@@ -55,6 +55,7 @@ else()
         "app/lsm6ds_control.c"
         "app/audio_receiver.c"
         "app/auto_pairing.c"
+        "app/lz4_image_decoder.c"
 
         # app中遥测相关的文件
         "app/Telemetry/src/telemetry_protocol.c"
@@ -74,7 +75,7 @@ else()
     idf_component_register(
         SRCS ${MAIN_SRCS}
         INCLUDE_DIRS "inc" "UI/inc" "app/inc" "app/game" "fonts" "app/Telemetry/inc"
-        REQUIRES lvgl esp_timer lvgl_port Peripherals driver spiffs spi_flash esp_common
+        REQUIRES lvgl esp_timer lvgl_port Peripherals lz4-dev driver spiffs spi_flash esp_common
     )
     
     target_compile_definitions(${COMPONENT_LIB} PRIVATE EN_RECEIVER_MODE=0)
