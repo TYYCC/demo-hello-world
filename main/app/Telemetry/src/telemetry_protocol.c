@@ -144,6 +144,131 @@ size_t telemetry_protocol_create_ext_command(uint8_t* buffer, size_t buffer_size
 }
 
 /**
+ * @brief 创建特殊命令帧
+ *
+ * @param buffer 帧缓冲区
+ * @param buffer_size 帧缓冲区大小
+ * @param cmd_id 特殊命令ID
+ * @param params 参数数组
+ * @param param_len 参数长度
+ * @return 整个帧的总长度
+ */
+size_t telemetry_protocol_create_special_command(uint8_t* buffer, size_t buffer_size, uint8_t cmd_id,
+                                                const uint8_t* params, uint8_t param_len) {
+    size_t payload_len = 1 + 1 + param_len; // cmd_id + param_len + params
+    uint8_t payload[payload_len];
+
+    payload[0] = cmd_id;
+    payload[1] = param_len;
+    if (param_len > 0 && params != NULL) {
+        memcpy(&payload[2], params, param_len);
+    }
+
+    size_t frame_len = 2 + 1 + 1 + payload_len + 2; // Header + Len + Type + Payload + CRC
+    if (buffer_size < frame_len) {
+        return 0;
+    }
+
+    return finalize_frame(buffer, FRAME_TYPE_SPECIAL_CMD, payload, payload_len);
+}
+
+/**
+ * @brief 创建图传命令帧
+ *
+ * @param buffer 帧缓冲区
+ * @param buffer_size 帧缓冲区大小
+ * @param cmd_id 图传命令ID
+ * @param params 参数数组
+ * @param param_len 参数长度
+ * @return 整个帧的总长度
+ */
+size_t telemetry_protocol_create_image_command(uint8_t* buffer, size_t buffer_size, uint8_t cmd_id,
+                                              const uint8_t* params, uint8_t param_len) {
+    size_t payload_len = 1 + 1 + param_len; // cmd_id + param_len + params
+    uint8_t payload[payload_len];
+
+    payload[0] = cmd_id;
+    payload[1] = param_len;
+    if (param_len > 0 && params != NULL) {
+        memcpy(&payload[2], params, param_len);
+    }
+
+    size_t frame_len = 2 + 1 + 1 + payload_len + 2; // Header + Len + Type + Payload + CRC
+    if (buffer_size < frame_len) {
+        return 0;
+    }
+
+    return finalize_frame(buffer, FRAME_TYPE_IMAGE_TRANSFER, payload, payload_len);
+}
+
+/**
+ * @brief 创建遥测数据帧
+ *
+ * @param buffer 帧缓冲区
+ * @param buffer_size 帧缓冲区大小
+ * @param telemetry_data 遥测数据
+ * @return 整个帧的总长度
+ */
+size_t telemetry_protocol_create_telemetry_frame(uint8_t* buffer, size_t buffer_size,
+                                                const telemetry_data_payload_t* telemetry_data) {
+    if (!buffer || !telemetry_data) {
+        return 0;
+    }
+
+    size_t payload_len = sizeof(telemetry_data_payload_t);
+    size_t frame_len = 2 + 1 + 1 + payload_len + 2; // Header + Len + Type + Payload + CRC
+    
+    if (buffer_size < frame_len) {
+        return 0;
+    }
+
+    return finalize_frame(buffer, FRAME_TYPE_TELEMETRY, (const uint8_t*)telemetry_data, payload_len);
+}
+
+/**
+ * @brief 创建ACK应答帧
+ *
+ * @param buffer 帧缓冲区
+ * @param buffer_size 帧缓冲区大小
+ * @param original_frame_type 原始帧类型
+ * @param ack_status ACK状态码
+ * @param response_data 响应数据
+ * @param response_len 响应数据长度
+ * @return 整个帧的总长度
+ */
+size_t telemetry_protocol_create_ack_frame(uint8_t* buffer, size_t buffer_size,
+                                          uint8_t original_frame_type, uint8_t ack_status,
+                                          const uint8_t* response_data, size_t response_len) {
+    if (!buffer) {
+        return 0;
+    }
+
+    // 限制响应数据长度
+    if (response_len > 64) {
+        response_len = 64;
+    }
+
+    size_t payload_len = 3 + response_len; // original_frame_type + ack_status + response_len + response_data
+    size_t frame_len = 2 + 1 + 1 + payload_len + 2; // Header + Len + Type + Payload + CRC
+    
+    if (buffer_size < frame_len) {
+        return 0;
+    }
+
+    // 构建负载
+    uint8_t payload[67]; // 3 + 64 max
+    payload[0] = original_frame_type;
+    payload[1] = ack_status;
+    payload[2] = (uint8_t)response_len;
+    
+    if (response_data && response_len > 0) {
+        memcpy(&payload[3], response_data, response_len);
+    }
+
+    return finalize_frame(buffer, FRAME_TYPE_ACK, payload, payload_len);
+}
+
+/**
  * @brief 解析帧
  *
  * @param buffer 帧缓冲区

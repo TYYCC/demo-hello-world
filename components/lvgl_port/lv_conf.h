@@ -12,7 +12,9 @@
  *    - define `LV_CONF_INCLUDE_SIMPLE`
  *    - add the path as include path
  */
+#if(EN_RECEIVER_MODE)
 
+#else
 /* clang-format off */
 #if 1 /*Set it to "1" to enable content*/
 
@@ -165,3 +167,5 @@
 #endif /*LV_CONF_H*/
 
 #endif /*End of "Content enable"*/
+
+#endif
