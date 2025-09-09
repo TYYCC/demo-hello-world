@@ -23,6 +23,11 @@ extern "C" {
 #define FRAME_TYPE_TELEMETRY 0x02               // 遥测帧类型
 #define FRAME_TYPE_COMMAND 0x01                 // 命令帧类型
 #define FRAME_TYPE_EXTENDED 0x04                // 扩展帧类型
+#define FRAME_TYPE_SPECIAL_CMD 0x05
+
+#define SPECIAL_CMD_ID_STA_IP 0x11
+#define SPECIAL_CMD_ID_STA_PASSWORD 0x12
+#define SPECIAL_CMD_ID_RESTART 0x15
 
 #define MAX_PAYLOAD_SIZE 128                    // 最大负载大小
 #define MIN_FRAME_SIZE 7                        // 最小帧大小
