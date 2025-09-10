@@ -19,10 +19,12 @@
 #include "ui.h"
 #include "ui_common.h"
 #include "settings_manager.h"
-#include "wifi_image_transfer.h" // For TCP mode
-#include "p2p_udp_image_transfer.h" // For UDP mode
-#include "image_transfer_app.h" // 新的模块化图像传输应用
-#include "../../app/image_transfer/inc/raw_data_service.h"
+#include "wifi_image_transfer.h"
+#include "p2p_udp_image_transfer.h"
+#include "image_transfer_app.h"
+#include "raw_data_service.h"
+#include "lz4_decoder_service.h"
+#include "jpeg_decoder_service.h"
 
 
 static const char* TAG = "UI_IMG_TRANSFER";
@@ -159,6 +161,8 @@ void ui_image_transfer_create(lv_obj_t* parent) {
     lv_obj_set_flex_flow(status_panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(status_panel, 5, 0);
     theme_apply_to_container(status_panel);
+    lv_obj_set_scrollbar_mode(status_panel, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_clear_flag(status_panel, LV_OBJ_FLAG_SCROLLABLE);
     
     s_ssid_label = lv_label_create(status_panel);
     theme_apply_to_label(s_ssid_label, false);
@@ -307,13 +311,25 @@ static void start_transfer_service(image_transfer_mode_t mode) {
             ret = p2p_udp_image_transfer_start();
         }
     } else { // IMAGE_TRANSFER_MODE_TCP
-        ESP_LOGI(TAG, "Starting TCP service...");
-        // 使用新的模块化图像传输应用
-        ret = image_transfer_app_init(IMAGE_TRANSFER_MODE_JPEG); // 使用JPEG解码模式
+        ESP_LOGI(TAG, "Starting TCP service with auto-detection...");
+        // 初始化所有解码器，让系统自动根据协议选择
+        ret = image_transfer_app_init(IMAGE_TRANSFER_MODE_JPEG); // 默认使用JPEG，但会自动切换
+        ESP_LOGI(TAG, "Base app init result: %d", ret);
         if (ret == ESP_OK) {
+            // 启动所有需要的解码器服务
+            esp_err_t raw_ret = image_transfer_app_set_mode(IMAGE_TRANSFER_MODE_RAW);
+            ESP_LOGI(TAG, "RAW decoder init result: %d", raw_ret);
+
+            esp_err_t lz4_ret = image_transfer_app_set_mode(IMAGE_TRANSFER_MODE_LZ4);
+            ESP_LOGI(TAG, "LZ4 decoder init result: %d", lz4_ret);
+
+            esp_err_t jpeg_ret = image_transfer_app_set_mode(IMAGE_TRANSFER_MODE_JPEG);
+            ESP_LOGI(TAG, "JPEG decoder init result: %d", jpeg_ret);
+
+            // 即使有些解码器初始化失败，我们仍然可以启动TCP服务器
             ret = image_transfer_app_start_tcp_server(6556);
             if (ret == ESP_OK) {
-                lv_label_set_text(s_status_label, "Status: TCP Server Running");
+                lv_label_set_text(s_status_label, "Status: TCP Server Running (Auto-detect)");
             }
         }
     }
@@ -414,50 +430,93 @@ static void image_render_timer_callback(lv_timer_t* timer)
     uint8_t* frame_buffer = NULL;
     size_t frame_size = 0;
     
-    // 获取最新帧数据
-    if (image_transfer_app_get_mode() == IMAGE_TRANSFER_MODE_RAW) {
-        // 原始模式
-        if (!s_is_rendering && raw_data_service_get_latest_frame(&frame_buffer, &frame_size) && s_canvas && s_canvas_buffer) {
-            if (frame_buffer && frame_size > 0) {
-                s_is_rendering = true; // Set rendering flag
+    // 获取最新帧数据 - 自动检测活跃的解码器
+    if (raw_data_service_is_running() && !s_is_rendering && raw_data_service_get_latest_frame(&frame_buffer, &frame_size) && s_canvas && s_canvas_buffer) {
+        if (frame_buffer && frame_size > 0) {
+            s_is_rendering = true; // Set rendering flag
 
-                // 假设原始数据已经是RGB565格式，直接复制到canvas缓冲区
-                lv_color_t* canvas_ptr = s_canvas_buffer;
-                uint16_t* rgb565_ptr = (uint16_t*)frame_buffer;
+            // 假设原始数据已经是RGB565格式，直接复制到canvas缓冲区
+            lv_color_t* canvas_ptr = s_canvas_buffer;
+            uint16_t* rgb565_ptr = (uint16_t*)frame_buffer;
 
-                // 计算要复制的数据大小（假设320x240分辨率）
-                int copy_width = s_canvas_width;
-                int copy_height = s_canvas_height;
-                size_t expected_size = copy_width * copy_height * 2; // RGB565格式
+            // 计算要复制的数据大小（假设320x240分辨率）
+            int copy_width = s_canvas_width;
+            int copy_height = s_canvas_height;
+            size_t expected_size = copy_width * copy_height * 2; // RGB565格式
 
-                if (frame_size >= expected_size) {
-                    // 复制RGB565数据到canvas缓冲区
-                    for (int y = 0; y < copy_height; y++) {
-                        for (int x = 0; x < copy_width; x++) {
-                            uint16_t rgb565 = *rgb565_ptr++;
-                            // Convert RGB565 to LVGL color format
-                            canvas_ptr[y * s_canvas_width + x] = lv_color_make(
-                                ((rgb565 >> 11) & 0x1F) << 3,  // R: 5 bits -> 8 bits
-                                ((rgb565 >> 5) & 0x3F) << 2,   // G: 6 bits -> 8 bits
-                                (rgb565 & 0x1F) << 3           // B: 5 bits -> 8 bits
-                            );
-                        }
+            if (frame_size >= expected_size) {
+                // 复制RGB565数据到canvas缓冲区
+                for (int y = 0; y < copy_height; y++) {
+                    for (int x = 0; x < copy_width; x++) {
+                        uint16_t rgb565 = *rgb565_ptr++;
+                        // Convert RGB565 to LVGL color format
+                        canvas_ptr[y * s_canvas_width + x] = lv_color_make(
+                            ((rgb565 >> 11) & 0x1F) << 3,  // R: 5 bits -> 8 bits
+                            ((rgb565 >> 5) & 0x3F) << 2,   // G: 6 bits -> 8 bits
+                            (rgb565 & 0x1F) << 3           // B: 5 bits -> 8 bits
+                        );
                     }
-
-                    // Force canvas refresh
-                    lv_obj_invalidate(s_canvas);
-
-                    ESP_LOGI(TAG, "RAW frame displayed on canvas: %zu bytes", frame_size);
-                } else {
-                    ESP_LOGW(TAG, "RAW frame size mismatch: got %zu, expected %zu", frame_size, expected_size);
                 }
 
-                s_is_rendering = false; // Clear rendering flag
+                // Force canvas refresh
+                lv_obj_invalidate(s_canvas);
+
+                ESP_LOGI(TAG, "RAW frame displayed on canvas: %zu bytes", frame_size);
+            } else {
+                ESP_LOGW(TAG, "RAW frame size mismatch: got %zu, expected %zu", frame_size, expected_size);
             }
-            // 解锁帧数据
-            raw_data_service_frame_unlock();
+
+            s_is_rendering = false; // Clear rendering flag
         }
-    } else if (image_transfer_app_get_mode() == IMAGE_TRANSFER_MODE_JPEG) {
+        // 解锁帧数据
+        raw_data_service_frame_unlock();
+    } else if (lz4_decoder_service_is_running()) {
+        // LZ4模式 - 使用存储的帧数据（通过回调传递）
+        if (!s_is_rendering && s_has_new_frame && s_latest_frame_buffer &&
+            s_latest_frame_width > 0 && s_latest_frame_height > 0 &&
+            s_canvas && s_canvas_buffer) {
+
+            s_is_rendering = true; // Set rendering flag
+
+            // 假设LZ4解压缩后的数据已经是RGB565格式，直接复制到canvas缓冲区
+            lv_color_t* canvas_ptr = s_canvas_buffer;
+            uint16_t* rgb565_ptr = (uint16_t*)s_latest_frame_buffer;
+
+            // 计算要复制的数据大小
+            int copy_width = s_canvas_width;
+            int copy_height = s_canvas_height;
+            size_t expected_size = copy_width * copy_height * 2; // RGB565格式
+
+            if (s_latest_frame_width * s_latest_frame_height * 2 >= expected_size) {
+                // 复制RGB565数据到canvas缓冲区
+                for (int y = 0; y < copy_height && y < s_latest_frame_height; y++) {
+                    for (int x = 0; x < copy_width && x < s_latest_frame_width; x++) {
+                        uint16_t rgb565 = *rgb565_ptr++;
+                        // Convert RGB565 to LVGL color format
+                        canvas_ptr[y * s_canvas_width + x] = lv_color_make(
+                            ((rgb565 >> 11) & 0x1F) << 3,  // R: 5 bits -> 8 bits
+                            ((rgb565 >> 5) & 0x3F) << 2,   // G: 6 bits -> 8 bits
+                            (rgb565 & 0x1F) << 3           // B: 5 bits -> 8 bits
+                        );
+                    }
+                }
+
+                // Force canvas refresh
+                lv_obj_invalidate(s_canvas);
+
+                ESP_LOGI(TAG, "LZ4 frame displayed: %dx%d -> %dx%d",
+                        s_latest_frame_width, s_latest_frame_height,
+                        s_canvas_width, s_canvas_height);
+            } else {
+                ESP_LOGW(TAG, "LZ4 frame size too small: %dx%d", s_latest_frame_width, s_latest_frame_height);
+            }
+
+            // 重置标志
+            s_has_new_frame = false;
+
+            s_is_rendering = false; // Clear rendering flag
+        }
+    } else if (jpeg_decoder_service_is_running()) {
         // JPEG模式 - 使用canvas绘制帧数据
         if (!s_is_rendering) {
             if (s_has_new_frame && s_latest_frame_buffer &&

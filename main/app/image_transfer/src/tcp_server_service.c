@@ -11,6 +11,7 @@
 #include "raw_data_service.h"
 #include "lz4_decoder_service.h"
 #include "jpeg_decoder_service.h"
+#include "image_transfer_app.h"
 
 static const char* TAG = "TCP_SERVER_SERVICE";
 
@@ -105,18 +106,63 @@ static void tcp_server_task(void* pvParameters) {
 
                 uint8_t* payload = (uint8_t*)(header + 1);
 
+                // 根据数据类型自动切换解码器模式
+                image_transfer_mode_t required_mode = IMAGE_TRANSFER_MODE_JPEG; // 默认
                 switch (header->data_type) {
                     case DATA_TYPE_JPEG:
-                        jpeg_decoder_service_process_data(payload, header->data_len);
+                        required_mode = IMAGE_TRANSFER_MODE_JPEG;
+                        ESP_LOGI(TAG, "Processing JPEG data: %u bytes", header->data_len);
                         break;
                     case DATA_TYPE_LZ4:
-                        lz4_decoder_service_process_data(payload, header->data_len);
+                        required_mode = IMAGE_TRANSFER_MODE_LZ4;
+                        ESP_LOGI(TAG, "Processing LZ4 data: %u bytes", header->data_len);
                         break;
                     case DATA_TYPE_RAW:
-                        raw_data_service_process_data(payload, header->data_len);
+                        required_mode = IMAGE_TRANSFER_MODE_RAW;
+                        ESP_LOGI(TAG, "Processing RAW data: %u bytes", header->data_len);
                         break;
                     default:
-                        ESP_LOGW(TAG, "Unknown data type: 0x%02X", header->data_type);
+                        ESP_LOGW(TAG, "Unknown data type: 0x%02X", header->data_len);
+                        break;
+                }
+
+                // 如果当前模式不是需要的模式，自动切换
+                if (image_transfer_app_get_mode() != required_mode) {
+                    ESP_LOGI(TAG, "Auto-switching mode from %d to %d", image_transfer_app_get_mode(), required_mode);
+                    esp_err_t switch_ret = image_transfer_app_set_mode(required_mode);
+                    if (switch_ret != ESP_OK) {
+                        ESP_LOGW(TAG, "Failed to auto-switch mode: %d", switch_ret);
+                    } else {
+                        // 给解码器一些时间来完全启动
+                        vTaskDelay(pdMS_TO_TICKS(10));
+                    }
+                }
+
+                // 现在处理数据
+                switch (header->data_type) {
+                    case DATA_TYPE_JPEG:
+                        if (jpeg_decoder_service_is_running()) {
+                            jpeg_decoder_service_process_data(payload, header->data_len);
+                        } else {
+                            ESP_LOGW(TAG, "JPEG decoder not running, skipping data processing");
+                        }
+                        break;
+                    case DATA_TYPE_LZ4:
+                        if (lz4_decoder_service_is_running()) {
+                            lz4_decoder_service_process_data(payload, header->data_len);
+                        } else {
+                            ESP_LOGW(TAG, "LZ4 decoder not running, skipping data processing");
+                        }
+                        break;
+                    case DATA_TYPE_RAW:
+                        if (raw_data_service_is_running()) {
+                            raw_data_service_process_data(payload, header->data_len);
+                        } else {
+                            ESP_LOGW(TAG, "RAW decoder not running, skipping data processing");
+                        }
+                        break;
+                    default:
+                        // Unknown data type already logged above
                         break;
                 }
                 consumed += sizeof(image_transfer_header_t) + header->data_len;

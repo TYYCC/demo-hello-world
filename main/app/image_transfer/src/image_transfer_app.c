@@ -26,6 +26,9 @@ static void ui_data_callback(const uint8_t* data, size_t length,
             break;
         case UI_DATA_TYPE_LZ4:
             ESP_LOGI(TAG, "LZ4 decompressed data: %zu bytes", length);
+            // 调用UI模块更新图像（复用JPEG的更新函数）
+            extern void ui_image_transfer_update_jpeg_frame(const uint8_t* data, size_t length, uint16_t width, uint16_t height);
+            ui_image_transfer_update_jpeg_frame(data, length, 240, 180); // LZ4数据默认分辨率
             break;
         case UI_DATA_TYPE_JPEG:
             ESP_LOGI(TAG, "JPEG decoded data: %zu bytes, %dx%d", length, width, height);
@@ -108,7 +111,9 @@ esp_err_t image_transfer_app_set_mode(image_transfer_mode_t mode) {
             ret = raw_data_service_init(ui_mapping_service_get_raw_callback(), NULL);
             break;
         case IMAGE_TRANSFER_MODE_LZ4:
+            ESP_LOGI(TAG, "Initializing LZ4 decoder service");
             ret = lz4_decoder_service_init(ui_mapping_service_get_lz4_callback(), NULL);
+            ESP_LOGI(TAG, "LZ4 decoder service init result: %d", ret);
             break;
         case IMAGE_TRANSFER_MODE_JPEG:
             ret = jpeg_decoder_service_init(ui_mapping_service_get_jpeg_callback(), NULL);

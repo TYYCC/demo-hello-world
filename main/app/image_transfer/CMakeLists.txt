@@ -25,6 +25,7 @@ idf_component_register(
         esp_jpeg
         lvgl
         lvgl_port
+        lz4-dev
 )
 
 # Add LZ4 library include path

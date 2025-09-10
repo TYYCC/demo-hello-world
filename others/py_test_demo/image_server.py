@@ -10,7 +10,7 @@ import lz4.frame
 ESP32_IP = '192.168.76.247'  # 修改为你的 ESP32 IP 地址
 ESP32_PORT = 6556           # ESP32 监听的端口
 MAX_IMAGE_SIZE_BYTES = 90 * 1024  # 90KB single buffer
-TARGET_RESOLUTION = (240, 240)
+TARGET_RESOLUTION = (240, 200)
 
 def select_video_file():
     """
