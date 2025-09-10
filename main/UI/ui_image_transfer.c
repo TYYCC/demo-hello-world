@@ -29,26 +29,24 @@ static const char* TAG = "UI_IMG_TRANSFER";
 
 // UI Objects
 static lv_obj_t* s_page_parent = NULL;
-static lv_obj_t* s_img_obj = NULL;
 static lv_obj_t* s_status_label = NULL;
 static lv_obj_t* s_ip_label = NULL;
 static lv_obj_t* s_ssid_label = NULL;
 static lv_obj_t* s_fps_label = NULL;
 static lv_obj_t* s_mode_toggle_btn_label = NULL; // Label for the new mode toggle button
 
-// Image descriptor
-static lv_img_dsc_t s_img_dsc = {.header.always_zero = 0,
-                                 .header.w = 0,
-                                 .header.h = 0,
-                                 .header.cf = LV_IMG_CF_TRUE_COLOR,
-                                 .data_size = 0,
-                                 .data = NULL};
+// Canvas for dynamic image display
+static lv_obj_t* s_canvas = NULL;
+static lv_color_t* s_canvas_buffer = NULL;
+static uint16_t s_canvas_width = 240;
+static uint16_t s_canvas_height = 180;
 
 // Latest frame data for JPEG mode
 static uint8_t* s_latest_frame_buffer = NULL;
 static int s_latest_frame_width = 0;
 static int s_latest_frame_height = 0;
 static bool s_has_new_frame = false;
+static bool s_is_rendering = false; // Flag to prevent concurrent rendering
 
 // External function declaration for UI callback
 void ui_image_transfer_update_jpeg_frame(const uint8_t* data, size_t length, uint16_t width, uint16_t height);
@@ -138,8 +136,21 @@ void ui_image_transfer_create(lv_obj_t* parent) {
     lv_obj_set_style_pad_all(image_panel, 5, 0);
     theme_apply_to_container(image_panel);
 
-    s_img_obj = lv_img_create(image_panel);
-    lv_obj_align(s_img_obj, LV_ALIGN_CENTER, 0, 0);
+    // Create canvas for dynamic image display
+    s_canvas = lv_canvas_create(image_panel);
+    lv_obj_align(s_canvas, LV_ALIGN_CENTER, 0, 0);
+
+    // Allocate canvas buffer
+    size_t buffer_size = s_canvas_width * s_canvas_height * sizeof(lv_color_t);
+    s_canvas_buffer = (lv_color_t*)heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
+    if (s_canvas_buffer) {
+        // Initialize canvas with white background
+        lv_canvas_set_buffer(s_canvas, s_canvas_buffer, s_canvas_width, s_canvas_height, LV_IMG_CF_TRUE_COLOR);
+        lv_canvas_fill_bg(s_canvas, lv_color_white(), LV_OPA_COVER);
+    } else {
+        ESP_LOGE(TAG, "Failed to allocate canvas buffer");
+    }
 
     // Status display panel
     lv_obj_t* status_panel = lv_obj_create(content_container);
@@ -171,7 +182,7 @@ void ui_image_transfer_create(lv_obj_t* parent) {
 
     // Create a timer to update status labels like FPS, IP, etc.
     s_status_update_timer = lv_timer_create(status_update_timer_callback, 500, NULL);
-    // Create a high-frequency timer for rendering images
+    // Create a timer for rendering images (lower frequency to prevent flickering)
     s_image_render_timer = lv_timer_create(image_render_timer_callback, 33, NULL); // ~30 FPS
 }
 
@@ -221,18 +232,25 @@ void ui_image_transfer_destroy(void) {
     s_page_parent = NULL;
 
     // Reset all static pointers
-    s_img_obj = NULL;
+    s_canvas = NULL;
     s_status_label = NULL;
     s_ip_label = NULL;
     s_ssid_label = NULL;
     s_fps_label = NULL;
     s_mode_toggle_btn_label = NULL;
 
+    // Free canvas buffer
+    if (s_canvas_buffer) {
+        free(s_canvas_buffer);
+        s_canvas_buffer = NULL;
+    }
+
     // Reset JPEG frame data
     s_latest_frame_buffer = NULL;
     s_latest_frame_width = 0;
     s_latest_frame_height = 0;
     s_has_new_frame = false;
+    s_is_rendering = false;
 
     s_is_running = false;
 }
@@ -331,9 +349,11 @@ static void stop_transfer_service(void) {
     lv_label_set_text(s_ssid_label, "SSID: -");
     lv_label_set_text(s_fps_label, "FPS: 0.0");
 
-    // Clear the image
-    if (s_img_obj) {
-        lv_img_set_src(s_img_obj, NULL);
+    // Clear the canvas
+    if (s_canvas && s_canvas_buffer) {
+        // Fill canvas with white background to clear it
+        lv_canvas_fill_bg(s_canvas, lv_color_white(), LV_OPA_COVER);
+        lv_obj_invalidate(s_canvas);
     }
 }
 
@@ -397,39 +417,83 @@ static void image_render_timer_callback(lv_timer_t* timer)
     // 获取最新帧数据
     if (image_transfer_app_get_mode() == IMAGE_TRANSFER_MODE_RAW) {
         // 原始模式
-        if (raw_data_service_get_latest_frame(&frame_buffer, &frame_size)) {
+        if (!s_is_rendering && raw_data_service_get_latest_frame(&frame_buffer, &frame_size) && s_canvas && s_canvas_buffer) {
             if (frame_buffer && frame_size > 0) {
-                if (s_img_obj && lv_obj_is_valid(s_img_obj)) {
-                    // 假设原始数据已经是RGB565格式
-                    s_img_dsc.header.w = 320; // 默认宽度
-                    s_img_dsc.header.h = 240; // 默认高度
-                    s_img_dsc.data_size = frame_size;
-                    s_img_dsc.data = frame_buffer;
-                    
-                    lv_img_set_src(s_img_obj, &s_img_dsc);
+                s_is_rendering = true; // Set rendering flag
+
+                // 假设原始数据已经是RGB565格式，直接复制到canvas缓冲区
+                lv_color_t* canvas_ptr = s_canvas_buffer;
+                uint16_t* rgb565_ptr = (uint16_t*)frame_buffer;
+
+                // 计算要复制的数据大小（假设320x240分辨率）
+                int copy_width = s_canvas_width;
+                int copy_height = s_canvas_height;
+                size_t expected_size = copy_width * copy_height * 2; // RGB565格式
+
+                if (frame_size >= expected_size) {
+                    // 复制RGB565数据到canvas缓冲区
+                    for (int y = 0; y < copy_height; y++) {
+                        for (int x = 0; x < copy_width; x++) {
+                            uint16_t rgb565 = *rgb565_ptr++;
+                            // Convert RGB565 to LVGL color format
+                            canvas_ptr[y * s_canvas_width + x] = lv_color_make(
+                                ((rgb565 >> 11) & 0x1F) << 3,  // R: 5 bits -> 8 bits
+                                ((rgb565 >> 5) & 0x3F) << 2,   // G: 6 bits -> 8 bits
+                                (rgb565 & 0x1F) << 3           // B: 5 bits -> 8 bits
+                            );
+                        }
+                    }
+
+                    // Force canvas refresh
+                    lv_obj_invalidate(s_canvas);
+
+                    ESP_LOGI(TAG, "RAW frame displayed on canvas: %zu bytes", frame_size);
+                } else {
+                    ESP_LOGW(TAG, "RAW frame size mismatch: got %zu, expected %zu", frame_size, expected_size);
                 }
+
+                s_is_rendering = false; // Clear rendering flag
             }
             // 解锁帧数据
             raw_data_service_frame_unlock();
         }
     } else if (image_transfer_app_get_mode() == IMAGE_TRANSFER_MODE_JPEG) {
-        // JPEG模式 - 使用存储的帧数据
-        if (s_has_new_frame && s_latest_frame_buffer && s_latest_frame_width > 0 && s_latest_frame_height > 0) {
-            if (s_img_obj && lv_obj_is_valid(s_img_obj)) {
-                // 设置图像描述符
-                s_img_dsc.header.w = s_latest_frame_width;
-                s_img_dsc.header.h = s_latest_frame_height;
-                s_img_dsc.data_size = s_latest_frame_width * s_latest_frame_height * 2; // RGB565格式，2字节/像素
-                s_img_dsc.data = s_latest_frame_buffer;
+        // JPEG模式 - 使用canvas绘制帧数据
+        if (!s_is_rendering) {
+            if (s_has_new_frame && s_latest_frame_buffer &&
+                s_latest_frame_width > 0 && s_latest_frame_height > 0 &&
+                s_canvas && s_canvas_buffer) {
 
-                // 显示图像
-                lv_img_set_src(s_img_obj, &s_img_dsc);
+                s_is_rendering = true; // Set rendering flag
 
-                ESP_LOGI(TAG, "Image displayed: %dx%d, data size: %d bytes",
-                        s_latest_frame_width, s_latest_frame_height, s_img_dsc.data_size);
+                // Convert RGB565 data to LVGL color format and draw on canvas
+                lv_color_t* canvas_ptr = s_canvas_buffer;
+                uint16_t* rgb565_ptr = (uint16_t*)s_latest_frame_buffer;
+
+                // Copy RGB565 data to canvas buffer
+                for (int y = 0; y < s_latest_frame_height && y < s_canvas_height; y++) {
+                    for (int x = 0; x < s_latest_frame_width && x < s_canvas_width; x++) {
+                        uint16_t rgb565 = *rgb565_ptr++;
+                        // Convert RGB565 to LVGL color format
+                        canvas_ptr[y * s_canvas_width + x] = lv_color_make(
+                            ((rgb565 >> 11) & 0x1F) << 3,  // R: 5 bits -> 8 bits
+                            ((rgb565 >> 5) & 0x3F) << 2,   // G: 6 bits -> 8 bits
+                            (rgb565 & 0x1F) << 3           // B: 5 bits -> 8 bits
+                        );
+                    }
+                }
+
+                // Force canvas refresh
+                lv_obj_invalidate(s_canvas);
+
+                ESP_LOGI(TAG, "Canvas updated: %dx%d -> %dx%d",
+                        s_latest_frame_width, s_latest_frame_height,
+                        s_canvas_width, s_canvas_height);
 
                 // 重置标志
                 s_has_new_frame = false;
+
+                s_is_rendering = false; // Clear rendering flag
             }
         }
     }
@@ -484,6 +548,12 @@ void ui_image_transfer_update_jpeg_frame(const uint8_t* data, size_t length, uin
     s_latest_frame_width = width;
     s_latest_frame_height = height;
     s_has_new_frame = true;
+
+    // Validate data size matches expected RGB565 size
+    size_t expected_size = width * height * 2;
+    if (length != expected_size) {
+        ESP_LOGW(TAG, "JPEG frame size mismatch: got %zu, expected %zu", length, expected_size);
+    }
 
     ESP_LOGI(TAG, "JPEG frame updated: %dx%d, %zu bytes", width, height, length);
 }
