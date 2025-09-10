@@ -80,3 +80,11 @@ ESP-IDFv5.5[下载目录](https://github.com/espressif/idf-installer/releases/do
 
 - [ESP-IDF 官方文档](https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32s3/index.html)
 - 项目内 `doc/` 文件夹
+
+TCP服务端口分布情况：
+- 端口8080：用于串口文本传输
+- 端口6556：用于图像传输
+- 端口7878：用于心跳包和常规命令控制
+- 端口6667：用于远程控制
+- 端口7557：用于音频传输
+- 端口1100：用于特殊命令发送
