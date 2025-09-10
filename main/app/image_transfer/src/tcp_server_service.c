@@ -28,7 +28,7 @@ static void tcp_server_task(void* pvParameters) {
     int client_socket = -1;
     struct sockaddr_in6 client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
-    uint8_t* recv_buffer = malloc(4096);
+    uint8_t* recv_buffer = malloc(100 * 1024);  // 增加缓冲区到100KB
     if (!recv_buffer) {
         ESP_LOGE(TAG, "Failed to allocate recv_buffer");
         vTaskDelete(NULL);
@@ -50,7 +50,7 @@ static void tcp_server_task(void* pvParameters) {
 
         size_t buffer_offset = 0;
         while (s_tcp_server_running) {
-            int len = recv(client_socket, recv_buffer + buffer_offset, 4096 - buffer_offset, 0);
+            int len = recv(client_socket, recv_buffer + buffer_offset, (100 * 1024) - buffer_offset, 0);
             if (len < 0) {
                 if (errno != EAGAIN && errno != EWOULDBLOCK) {
                     ESP_LOGE(TAG, "Recv failed: errno %d", errno);
@@ -64,6 +64,13 @@ static void tcp_server_task(void* pvParameters) {
             }
 
             buffer_offset += len;
+
+            // 检查缓冲区是否已满
+            if (buffer_offset >= (100 * 1024)) {
+                ESP_LOGW(TAG, "Receive buffer full (%d bytes), possible data loss", buffer_offset);
+                // 可以选择清空缓冲区或增加处理速度
+                buffer_offset = 0;
+            }
             size_t consumed = 0;
 
             while (consumed < buffer_offset) {
@@ -73,13 +80,12 @@ static void tcp_server_task(void* pvParameters) {
 
                 image_transfer_header_t* header = (image_transfer_header_t*)(recv_buffer + consumed);
 
-                uint32_t received_sync_word = __builtin_bswap32(header->sync_word);
-if (received_sync_word != PROTOCOL_SYNC_WORD) {
-    ESP_LOGW(TAG, "Invalid sync word (received: 0x%08X, expected: 0x%08X). Searching for sync word...", received_sync_word, PROTOCOL_SYNC_WORD);
+                if (header->sync_word != PROTOCOL_SYNC_WORD) {
+    ESP_LOGW(TAG, "Invalid sync word (received: 0x%08X, expected: 0x%08X). Searching for sync word...", header->sync_word, PROTOCOL_SYNC_WORD);
                     
     size_t search_offset = 1;
     while (consumed + search_offset + sizeof(uint32_t) <= buffer_offset) {
-        uint32_t potential_sync = __builtin_bswap32(*(uint32_t*)(recv_buffer + consumed + search_offset));
+        uint32_t potential_sync = *(uint32_t*)(recv_buffer + consumed + search_offset);
         if (potential_sync == PROTOCOL_SYNC_WORD) {
             consumed += search_offset;
             header = (image_transfer_header_t*)(recv_buffer + consumed);

@@ -16,10 +16,9 @@ static image_transfer_mode_t s_current_mode = IMAGE_TRANSFER_MODE_RAW;
 static bool s_app_running = false;
 
 // UI数据回调函数
-static void ui_data_callback(const uint8_t* data, size_t length, 
-                           uint16_t width, uint16_t height, 
+static void ui_data_callback(const uint8_t* data, size_t length,
+                           uint16_t width, uint16_t height,
                            ui_data_type_t data_type, void* context) {
-    // 这里应该调用实际的UI更新函数
     // 根据不同的数据类型处理UI显示
     switch (data_type) {
         case UI_DATA_TYPE_RAW:
@@ -30,9 +29,12 @@ static void ui_data_callback(const uint8_t* data, size_t length,
             break;
         case UI_DATA_TYPE_JPEG:
             ESP_LOGI(TAG, "JPEG decoded data: %zu bytes, %dx%d", length, width, height);
+            // 调用UI模块更新图像
+            extern void ui_image_transfer_update_jpeg_frame(const uint8_t* data, size_t length, uint16_t width, uint16_t height);
+            ui_image_transfer_update_jpeg_frame(data, length, width, height);
             break;
     }
-    
+
     // 解锁帧数据，允许新的数据写入
     ui_mapping_service_frame_unlock();
 }
@@ -58,10 +60,18 @@ esp_err_t image_transfer_app_init(image_transfer_mode_t initial_mode) {
         ui_mapping_service_deinit();
         return ret;
     }
-    
-    // 设置初始模式
+
+    // 设置初始模式并初始化对应服务
     s_current_mode = initial_mode;
-    s_app_running = true;
+    s_app_running = true;  // 先设置运行状态，供set_mode使用
+    ret = image_transfer_app_set_mode(initial_mode);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set initial mode: %d", initial_mode);
+        s_app_running = false;  // 失败时重置状态
+        tcp_server_service_deinit();
+        ui_mapping_service_deinit();
+        return ret;
+    }
     
     ESP_LOGI(TAG, "Image transfer app initialized with mode: %d", initial_mode);
     return ESP_OK;

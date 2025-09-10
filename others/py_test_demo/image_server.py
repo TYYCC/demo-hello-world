@@ -7,7 +7,7 @@ from tkinter import Tk, filedialog
 import argparse
 import lz4.frame
 
-ESP32_IP = '192.168.123.159'  # 修改为你的 ESP32 IP 地址
+ESP32_IP = '192.168.76.247'  # 修改为你的 ESP32 IP 地址
 ESP32_PORT = 6556           # ESP32 监听的端口
 MAX_IMAGE_SIZE_BYTES = 90 * 1024  # 90KB single buffer
 TARGET_RESOLUTION = (240, 240)
@@ -84,7 +84,7 @@ def send_video_to_esp32(video_source, encoding):
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.connect((ESP32_IP, ESP32_PORT))
-                    s.settimeout(1.0)  # 设置1秒超时
+                    s.settimeout(5.0)  # 增加超时时间到5秒
                     print("Connected. Starting video stream...")
 
                     while True:

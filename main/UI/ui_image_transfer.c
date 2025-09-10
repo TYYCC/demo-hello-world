@@ -44,6 +44,15 @@ static lv_img_dsc_t s_img_dsc = {.header.always_zero = 0,
                                  .data_size = 0,
                                  .data = NULL};
 
+// Latest frame data for JPEG mode
+static uint8_t* s_latest_frame_buffer = NULL;
+static int s_latest_frame_width = 0;
+static int s_latest_frame_height = 0;
+static bool s_has_new_frame = false;
+
+// External function declaration for UI callback
+void ui_image_transfer_update_jpeg_frame(const uint8_t* data, size_t length, uint16_t width, uint16_t height);
+
 // State variables
 static bool s_is_running = false;
 static image_transfer_mode_t s_current_mode;
@@ -219,6 +228,12 @@ void ui_image_transfer_destroy(void) {
     s_fps_label = NULL;
     s_mode_toggle_btn_label = NULL;
 
+    // Reset JPEG frame data
+    s_latest_frame_buffer = NULL;
+    s_latest_frame_width = 0;
+    s_latest_frame_height = 0;
+    s_has_new_frame = false;
+
     s_is_running = false;
 }
 
@@ -276,7 +291,7 @@ static void start_transfer_service(image_transfer_mode_t mode) {
     } else { // IMAGE_TRANSFER_MODE_TCP
         ESP_LOGI(TAG, "Starting TCP service...");
         // 使用新的模块化图像传输应用
-        ret = image_transfer_app_init(IMAGE_TRANSFER_MODE_RAW); // 默认使用原始模式
+        ret = image_transfer_app_init(IMAGE_TRANSFER_MODE_JPEG); // 使用JPEG解码模式
         if (ret == ESP_OK) {
             ret = image_transfer_app_start_tcp_server(6556);
             if (ret == ESP_OK) {
@@ -397,6 +412,26 @@ static void image_render_timer_callback(lv_timer_t* timer)
             // 解锁帧数据
             raw_data_service_frame_unlock();
         }
+    } else if (image_transfer_app_get_mode() == IMAGE_TRANSFER_MODE_JPEG) {
+        // JPEG模式 - 使用存储的帧数据
+        if (s_has_new_frame && s_latest_frame_buffer && s_latest_frame_width > 0 && s_latest_frame_height > 0) {
+            if (s_img_obj && lv_obj_is_valid(s_img_obj)) {
+                // 设置图像描述符
+                s_img_dsc.header.w = s_latest_frame_width;
+                s_img_dsc.header.h = s_latest_frame_height;
+                s_img_dsc.data_size = s_latest_frame_width * s_latest_frame_height * 2; // RGB565格式，2字节/像素
+                s_img_dsc.data = s_latest_frame_buffer;
+
+                // 显示图像
+                lv_img_set_src(s_img_obj, &s_img_dsc);
+
+                ESP_LOGI(TAG, "Image displayed: %dx%d, data size: %d bytes",
+                        s_latest_frame_width, s_latest_frame_height, s_img_dsc.data_size);
+
+                // 重置标志
+                s_has_new_frame = false;
+            }
+        }
     }
 }
 
@@ -436,4 +471,19 @@ static void update_ssid_label(void) {
             lv_label_set_text(s_ssid_label, "SSID: Not Connected");
         }
     }
+}
+
+// External function to update JPEG frame data from app layer
+void ui_image_transfer_update_jpeg_frame(const uint8_t* data, size_t length, uint16_t width, uint16_t height) {
+    if (!s_is_running || s_current_mode != IMAGE_TRANSFER_MODE_TCP) {
+        return;
+    }
+
+    // Store the frame data for later rendering
+    s_latest_frame_buffer = (uint8_t*)data;
+    s_latest_frame_width = width;
+    s_latest_frame_height = height;
+    s_has_new_frame = true;
+
+    ESP_LOGI(TAG, "JPEG frame updated: %dx%d, %zu bytes", width, height, length);
 }

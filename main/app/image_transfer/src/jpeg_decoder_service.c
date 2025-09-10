@@ -5,7 +5,9 @@
 #include "freertos/event_groups.h"
 #include "esp_jpeg_common.h"
 #include "esp_jpeg_dec.h"
+#include "esp_heap_caps.h"
 #include <string.h>
+#include <stdlib.h>
 
 static const char* TAG = "JPEG_DECODER_SERVICE";
 
@@ -24,27 +26,110 @@ static TaskHandle_t s_jpeg_decode_task_handle = NULL;
 
 // JPEG解码任务函数
 static void jpeg_decode_task(void* pvParameters) {
+    // 初始化JPEG解码器
+    jpeg_dec_config_t config = DEFAULT_JPEG_DEC_CONFIG();
+    config.output_type = JPEG_PIXEL_FORMAT_RGB565_LE; // ESP32 LVGL使用RGB565格式
+
+    jpeg_error_t dec_ret;
+    jpeg_dec_handle_t jpeg_dec = NULL;
+    dec_ret = jpeg_dec_open(&config, &jpeg_dec);
+    if (dec_ret != JPEG_ERR_OK) {
+        ESP_LOGE(TAG, "Failed to open JPEG decoder: %d", dec_ret);
+        s_jpeg_decode_task_handle = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ESP_LOGI(TAG, "JPEG decode task started with hardware decoder");
+
     while (s_jpeg_service_running) {
         // 等待数据就绪
         EventBits_t bits = xEventGroupWaitBits(s_jpeg_event_group,
                                              JPEG_DATA_READY_BIT,
                                              pdTRUE,  // 清除标志
                                              pdFALSE, // 等待所有位
-                                             portMAX_DELAY);
-        
+                                             pdMS_TO_TICKS(100)); // 100ms超时，避免永久阻塞
+
         if (bits & JPEG_DATA_READY_BIT) {
-            // 这里应该有真正的JPEG解码逻辑
-            // 暂时模拟解码过程，添加适当延迟
-            vTaskDelay(pdMS_TO_TICKS(10)); // 模拟解码时间
-            
-            // 调用数据回调
-            if (s_data_callback && s_jpeg_buffer && s_decoded_buffer) {
-                // 假设解码后的数据尺寸与原始数据相同
-                s_data_callback(s_decoded_buffer, s_max_jpeg_size, 0, 0, s_callback_context);
+            ESP_LOGI(TAG, "JPEG decode task: received data ready signal");
+            if (s_jpeg_buffer && s_max_jpeg_size > 0) {
+                ESP_LOGI(TAG, "JPEG decode task: buffer valid, size=%zu", s_max_jpeg_size);
+                // 解析JPEG头部信息
+                jpeg_dec_io_t* jpeg_io = calloc(1, sizeof(jpeg_dec_io_t));
+                jpeg_dec_header_info_t* out_info = calloc(1, sizeof(jpeg_dec_header_info_t));
+
+                if (jpeg_io && out_info) {
+                    // 设置输入缓冲区
+                    jpeg_io->inbuf = s_jpeg_buffer;
+                    jpeg_io->inbuf_len = s_max_jpeg_size;
+
+                    // 解析JPEG头部
+                    ESP_LOGI(TAG, "JPEG decode task: parsing header...");
+                    dec_ret = jpeg_dec_parse_header(jpeg_dec, jpeg_io, out_info);
+                    if (dec_ret == JPEG_ERR_OK) {
+                        ESP_LOGI(TAG, "JPEG header parsed successfully: %dx%d", out_info->width, out_info->height);
+
+                        // 确保解码缓冲区足够大
+                        size_t required_size = out_info->width * out_info->height * 2; // RGB565 = 2字节/像素
+                        if (!s_decoded_buffer || s_max_decoded_size < required_size) {
+                            if (s_decoded_buffer) {
+                                free(s_decoded_buffer);
+                            }
+                            s_decoded_buffer = heap_caps_aligned_alloc(16, required_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                            if (!s_decoded_buffer) {
+                                ESP_LOGE(TAG, "Failed to allocate decoded buffer");
+                                free(jpeg_io);
+                                free(out_info);
+                                continue;
+                            }
+                            s_max_decoded_size = required_size;
+                        }
+
+                        // 设置输出缓冲区
+                        jpeg_io->outbuf = s_decoded_buffer;
+
+                        // 执行JPEG解码
+                        ESP_LOGI(TAG, "JPEG decode task: processing decode...");
+                        dec_ret = jpeg_dec_process(jpeg_dec, jpeg_io);
+                        if (dec_ret == JPEG_ERR_OK) {
+                            ESP_LOGI(TAG, "JPEG decoded successfully: %dx%d", out_info->width, out_info->height);
+
+                            // 调用数据回调，传递解码后的数据
+                            if (s_data_callback) {
+                                ESP_LOGI(TAG, "JPEG decode task: calling data callback");
+                                s_data_callback(s_decoded_buffer, required_size,
+                                              out_info->width, out_info->height, s_callback_context);
+                            } else {
+                                ESP_LOGW(TAG, "JPEG decode task: no data callback set");
+                            }
+                        } else {
+                            ESP_LOGE(TAG, "JPEG decode failed: %d", dec_ret);
+                        }
+                    } else {
+                        ESP_LOGE(TAG, "JPEG header parse failed: %d", dec_ret);
+                    }
+                } else {
+                    ESP_LOGE(TAG, "Failed to allocate JPEG decode structures");
+                }
+
+                // 清理临时结构
+                if (jpeg_io) free(jpeg_io);
+                if (out_info) free(out_info);
+            } else {
+                ESP_LOGW(TAG, "JPEG decode task: invalid buffer or size=0");
             }
+        } else {
+            ESP_LOGD(TAG, "JPEG decode task: waiting for data...");
         }
     }
-    
+
+    // 清理解码器
+    if (jpeg_dec) {
+        jpeg_dec_close(jpeg_dec);
+    }
+
+    ESP_LOGI(TAG, "JPEG decode task stopped");
+    s_jpeg_decode_task_handle = NULL;
     vTaskDelete(NULL);
 }
 
@@ -53,12 +138,14 @@ void jpeg_decoder_service_process_data(const uint8_t* data, size_t length) {
         return;
     }
 
+    ESP_LOGI(TAG, "Processing JPEG data: %zu bytes", length);
+
     // 确保JPEG缓冲区足够大
     if (!s_jpeg_buffer || s_max_jpeg_size < length) {
         if (s_jpeg_buffer) {
             free(s_jpeg_buffer);
         }
-        s_jpeg_buffer = malloc(length);
+        s_jpeg_buffer = heap_caps_aligned_alloc(16, length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!s_jpeg_buffer) {
             ESP_LOGE(TAG, "Failed to allocate JPEG buffer");
             return;
@@ -68,28 +155,10 @@ void jpeg_decoder_service_process_data(const uint8_t* data, size_t length) {
 
     // 复制JPEG数据
     memcpy(s_jpeg_buffer, data, length);
+    ESP_LOGI(TAG, "JPEG data copied to buffer");
 
-    // 假设最大解码尺寸为原始尺寸的4倍，或者根据实际情况调整
-    size_t estimated_decoded_size = length * 4; 
-
-    // 确保解码缓冲区足够大
-    if (!s_decoded_buffer || s_max_decoded_size < estimated_decoded_size) {
-        if (s_decoded_buffer) {
-            free(s_decoded_buffer);
-        }
-        s_decoded_buffer = malloc(estimated_decoded_size);
-        if (!s_decoded_buffer) {
-            ESP_LOGE(TAG, "Failed to allocate decoded buffer");
-            return;
-        }
-        s_max_decoded_size = estimated_decoded_size;
-    }
-
-    // 设置数据就绪标志
+    // 设置数据就绪标志，通知解码任务开始工作
     xEventGroupSetBits(s_jpeg_event_group, JPEG_DATA_READY_BIT);
-    
-    // 注意：这里不立即调用回调，而是等待真正的解码任务来处理数据
-    // 真正的解码应该在单独的任务中完成，避免阻塞TCP接收
 }
 
 
