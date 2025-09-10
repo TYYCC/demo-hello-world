@@ -5,6 +5,12 @@
 #include "freertos/event_groups.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include <fcntl.h>
+#include <unistd.h>
+#include "image_transfer_protocol.h"
+#include "raw_data_service.h"
+#include "lz4_decoder_service.h"
+#include "jpeg_decoder_service.h"
 
 static const char* TAG = "TCP_SERVER_SERVICE";
 
@@ -13,8 +19,6 @@ static bool s_tcp_server_running = false;
 static int s_tcp_server_socket = -1;
 static TaskHandle_t s_tcp_server_task = NULL;
 static EventGroupHandle_t s_tcp_event_group = NULL;
-static tcp_server_callback_t s_data_callback = NULL;
-static void* s_callback_context = NULL;
 
 #define TCP_SERVER_STOP_BIT (1 << 0)
 #define TCP_SERVER_CONNECTED_BIT (1 << 1)
@@ -24,52 +28,112 @@ static void tcp_server_task(void* pvParameters) {
     int client_socket = -1;
     struct sockaddr_in6 client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
-    
+    uint8_t* recv_buffer = malloc(4096);
+    if (!recv_buffer) {
+        ESP_LOGE(TAG, "Failed to allocate recv_buffer");
+        vTaskDelete(NULL);
+        return;
+    }
+
     while (s_tcp_server_running) {
-        // 接受客户端连接
         client_socket = accept(s_tcp_server_socket, (struct sockaddr*)&client_addr, &client_addr_len);
         if (client_socket < 0) {
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                ESP_LOGE(TAG, "Failed to accept client connection: errno %d", errno);
+            if (errno != EWOULDBLOCK && errno != EAGAIN) {
+                ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
             }
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
-        
-        ESP_LOGI(TAG, "Client connected from %s", inet6_ntoa(client_addr.sin6_addr));
+
+        ESP_LOGI(TAG, "Client connected");
         xEventGroupSetBits(s_tcp_event_group, TCP_SERVER_CONNECTED_BIT);
-        
-        // 处理客户端数据
-        uint8_t buffer[2048];
+
+        size_t buffer_offset = 0;
         while (s_tcp_server_running) {
-            int len = recv(client_socket, buffer, sizeof(buffer), 0);
+            int len = recv(client_socket, recv_buffer + buffer_offset, 4096 - buffer_offset, 0);
             if (len < 0) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    vTaskDelay(pdMS_TO_TICKS(10));
-                    continue;
+                if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                    ESP_LOGE(TAG, "Recv failed: errno %d", errno);
+                    break;
                 }
-                ESP_LOGE(TAG, "recv failed: errno %d", errno);
-                break;
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
             } else if (len == 0) {
                 ESP_LOGI(TAG, "Client disconnected");
                 break;
             }
-            
-            // 调用数据回调函数处理接收到的数据
-            if (s_data_callback) {
-                s_data_callback(buffer, len, s_callback_context);
+
+            buffer_offset += len;
+            size_t consumed = 0;
+
+            while (consumed < buffer_offset) {
+                if (buffer_offset - consumed < sizeof(image_transfer_header_t)) {
+                    break; 
+                }
+
+                image_transfer_header_t* header = (image_transfer_header_t*)(recv_buffer + consumed);
+
+                uint32_t received_sync_word = __builtin_bswap32(header->sync_word);
+if (received_sync_word != PROTOCOL_SYNC_WORD) {
+    ESP_LOGW(TAG, "Invalid sync word (received: 0x%08X, expected: 0x%08X). Searching for sync word...", received_sync_word, PROTOCOL_SYNC_WORD);
+                    
+    size_t search_offset = 1;
+    while (consumed + search_offset + sizeof(uint32_t) <= buffer_offset) {
+        uint32_t potential_sync = __builtin_bswap32(*(uint32_t*)(recv_buffer + consumed + search_offset));
+        if (potential_sync == PROTOCOL_SYNC_WORD) {
+            consumed += search_offset;
+            header = (image_transfer_header_t*)(recv_buffer + consumed);
+            ESP_LOGI(TAG, "Sync word found at offset %d", consumed);
+            goto sync_found;
+        }
+        search_offset++;
+    }
+                    
+                    consumed = buffer_offset > 3 ? buffer_offset - 3 : 0;
+                    break;
+                }
+            sync_found:
+                if (buffer_offset - consumed < sizeof(image_transfer_header_t) + header->data_len) {
+                    break; 
+                }
+
+                uint8_t* payload = (uint8_t*)(header + 1);
+
+                switch (header->data_type) {
+                    case DATA_TYPE_JPEG:
+                        jpeg_decoder_service_process_data(payload, header->data_len);
+                        break;
+                    case DATA_TYPE_LZ4:
+                        lz4_decoder_service_process_data(payload, header->data_len);
+                        break;
+                    case DATA_TYPE_RAW:
+                        raw_data_service_process_data(payload, header->data_len);
+                        break;
+                    default:
+                        ESP_LOGW(TAG, "Unknown data type: 0x%02X", header->data_type);
+                        break;
+                }
+                consumed += sizeof(image_transfer_header_t) + header->data_len;
+            }
+
+            if (consumed > 0 && consumed < buffer_offset) {
+                memmove(recv_buffer, recv_buffer + consumed, buffer_offset - consumed);
+                buffer_offset -= consumed;
+            } else if (consumed == buffer_offset) {
+                buffer_offset = 0;
             }
         }
-        
+
         close(client_socket);
         xEventGroupClearBits(s_tcp_event_group, TCP_SERVER_CONNECTED_BIT);
     }
-    
+
+    free(recv_buffer);
     vTaskDelete(NULL);
 }
 
 // 初始化TCP服务器
-esp_err_t tcp_server_service_init(int port, tcp_server_callback_t data_callback, void* context) {
+esp_err_t tcp_server_service_init(int port) {
     if (s_tcp_server_running) {
         ESP_LOGW(TAG, "TCP server already running");
         return ESP_FAIL;
@@ -93,6 +157,17 @@ esp_err_t tcp_server_service_init(int port, tcp_server_callback_t data_callback,
     // 设置socket选项
     int opt = 1;
     setsockopt(s_tcp_server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    
+    // 设置TCP keepalive选项以防止连接超时
+    int keepalive = 1;
+    int keepidle = 30;     // 30秒后开始发送keepalive探测
+    int keepintvl = 5;      // 每5秒发送一次keepalive探测
+    int keepcnt = 3;        // 最多发送3次探测
+    
+    setsockopt(s_tcp_server_socket, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+    setsockopt(s_tcp_server_socket, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
+    setsockopt(s_tcp_server_socket, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
+    setsockopt(s_tcp_server_socket, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt));
     
     // 绑定地址
     struct sockaddr_in6 server_addr = {
@@ -119,8 +194,6 @@ esp_err_t tcp_server_service_init(int port, tcp_server_callback_t data_callback,
     // 设置非阻塞模式
     fcntl(s_tcp_server_socket, F_SETFL, O_NONBLOCK);
     
-    s_data_callback = data_callback;
-    s_callback_context = context;
     s_tcp_server_running = true;
     
     // 创建TCP服务器任务
@@ -162,8 +235,7 @@ void tcp_server_service_deinit(void) {
         s_tcp_event_group = NULL;
     }
     
-    s_data_callback = NULL;
-    s_callback_context = NULL;
+
     
     ESP_LOGI(TAG, "TCP server stopped");
 }

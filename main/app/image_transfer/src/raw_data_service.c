@@ -17,8 +17,7 @@ static void* s_callback_context = NULL;
 
 #define RAW_DATA_READY_BIT (1 << 0)
 
-// 处理原始数据
-static void process_raw_data(const uint8_t* data, size_t length, void* context) {
+void raw_data_service_process_data(const uint8_t* data, size_t length) {
     if (!s_raw_service_running || !s_data_callback) {
         return;
     }

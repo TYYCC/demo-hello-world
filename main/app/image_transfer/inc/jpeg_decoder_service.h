@@ -41,4 +41,14 @@ EventGroupHandle_t jpeg_decoder_service_get_event_group(void);
  */
 void jpeg_decoder_service_frame_unlock(void);
 
+/**
+ * @brief Processes a chunk of JPEG compressed data.
+ *
+ * This function is called to feed JPEG data into the service for decompression.
+ *
+ * @param data Pointer to the data buffer.
+ * @param length Length of the data in bytes.
+ */
+void jpeg_decoder_service_process_data(const uint8_t* data, size_t length);
+
 #endif // JPEG_DECODER_SERVICE_H

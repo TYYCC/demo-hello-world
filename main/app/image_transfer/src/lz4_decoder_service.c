@@ -36,8 +36,7 @@ static int lz4_decompress(const uint8_t* compressed_data, size_t compressed_size
     return decompressed_size;
 }
 
-// 处理LZ4压缩数据
-static void process_lz4_data(const uint8_t* data, size_t length, void* context) {
+void lz4_decoder_service_process_data(const uint8_t* data, size_t length) {
     if (!s_lz4_service_running || !s_data_callback) {
         return;
     }

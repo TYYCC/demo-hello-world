@@ -184,6 +184,29 @@ void ui_image_transfer_destroy(void) {
         s_image_render_timer = NULL;
     }
 
+    // Remove all event callbacks to prevent memory access violations
+    // This is critical to prevent "LoadProhibited" errors when events are processed
+    // after objects have been deleted
+    if (s_page_parent) {
+        lv_obj_remove_event_cb(s_page_parent, on_settings_changed_event);
+    }
+    
+    // Also remove event callbacks from the back button and settings button
+    if (s_page_parent) {
+        lv_obj_t* top_bar_container = lv_obj_get_child(s_page_parent, 0);
+        if (top_bar_container) {
+            lv_obj_t* back_btn = lv_obj_get_child(top_bar_container, 0);
+            if (back_btn) {
+                lv_obj_remove_event_cb(back_btn, on_back_clicked);
+            }
+            
+            lv_obj_t* settings_btn = lv_obj_get_child(top_bar_container, 2); // Settings button is typically the 3rd child
+            if (settings_btn) {
+                lv_obj_remove_event_cb(settings_btn, on_mode_toggle_clicked);
+            }
+        }
+    }
+
     // lv_obj_del will recursively delete children, so we only need to delete the parent
     lv_obj_del(s_page_parent);
     s_page_parent = NULL;

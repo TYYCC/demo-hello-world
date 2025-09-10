@@ -11,13 +11,11 @@ import struct
 import time
 from datetime import datetime
 
-# 协议常量定义 - 兼容Telemetry协议格式
-FRAME_HEADER_1 = 0xAA
-FRAME_HEADER_2 = 0x55
-FRAME_TYPE_COMMAND = 0x01
-FRAME_TYPE_TELEMETRY = 0x02
-FRAME_TYPE_HEARTBEAT = 0x03
-FRAME_TYPE_EXTENDED = 0x04
+# 协议常量定义 - 匹配ESP32协议格式
+PROTOCOL_SYNC_WORD = 0xAEBC1402
+DATA_TYPE_JPEG = 0x01
+DATA_TYPE_LZ4 = 0x02
+DATA_TYPE_RAW = 0x03
 
 # 端口配置
 HEARTBEAT_PORT = 7878
@@ -49,12 +47,14 @@ class TCPTestServer:
             return None, "数据长度不足"
             
         try:
-            # 解析帧头 - 使用Telemetry协议的4字节头部格式
-            # header1(1B) + header2(1B) + length(1B) + frame_type(1B)
-            header1, header2, length, frame_type = struct.unpack('<BBBB', data[:4])
+            # 解析帧头 - 匹配ESP32协议格式
+            if len(data) < 9:  # 最小帧长度: 4字节sync_word + 1字节data_type + 4字节data_len
+                return None, "数据长度不足"
+                
+            sync_word, data_type, data_len = struct.unpack('<IBI', data[:9])
             
-            if header1 != FRAME_HEADER_1 or header2 != FRAME_HEADER_2:
-                return None, f"帧头错误: 0x{header1:02X}{header2:02X}"
+            if sync_word != PROTOCOL_SYNC_WORD:
+                return None, f"同步字错误: 0x{sync_word:08X}"
                 
             # length字段表示类型字段+载荷长度（ESP32协议格式）
             # length = 1(类型) + N(载荷)

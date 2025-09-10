@@ -7,17 +7,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// 数据回调函数类型定义
-typedef void (*tcp_server_callback_t)(const uint8_t* data, size_t length, void* context);
-
 /**
- * @brief 初始化TCP服务器服务
- * @param port 服务器监听端口
- * @param data_callback 数据接收回调函数
- * @param context 回调函数上下文
- * @return esp_err_t 执行结果
+ * @brief Initializes the TCP server service.
+ *
+ * @param port The port number for the server to listen on.
+ * @return esp_err_t ESP_OK on success, or an error code on failure.
  */
-esp_err_t tcp_server_service_init(int port, tcp_server_callback_t data_callback, void* context);
+esp_err_t tcp_server_service_init(int port);
 
 /**
  * @brief 停止TCP服务器服务

@@ -48,4 +48,14 @@ bool raw_data_service_get_latest_frame(uint8_t** frame_buffer, size_t* frame_siz
  */
 void raw_data_service_frame_unlock(void);
 
+/**
+ * @brief Processes a chunk of raw data.
+ *
+ * This function is called to feed raw image data into the service for processing.
+ *
+ * @param data Pointer to the data buffer.
+ * @param length Length of the data in bytes.
+ */
+void raw_data_service_process_data(const uint8_t* data, size_t length);
+
 #endif // RAW_DATA_SERVICE_H

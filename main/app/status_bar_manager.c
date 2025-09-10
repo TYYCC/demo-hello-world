@@ -168,7 +168,7 @@ void status_bar_manager_deinit(void) {
 
     // 清理图标标签
     for (int i = 0; i < STATUS_ICON_MAX; i++) {
-        if (g_manager->icons[i].label != NULL && lv_obj_is_valid(g_manager->icons[i].label)) {
+        if (g_manager->icons[i].label != NULL) {
             lv_obj_del(g_manager->icons[i].label);
         }
     }

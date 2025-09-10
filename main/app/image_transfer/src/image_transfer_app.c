@@ -52,7 +52,7 @@ esp_err_t image_transfer_app_init(image_transfer_mode_t initial_mode) {
     }
     
     // 初始化TCP服务器服务
-    ret = tcp_server_service_init(8080, NULL, NULL);
+    ret = tcp_server_service_init(6556);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize TCP server service");
         ui_mapping_service_deinit();

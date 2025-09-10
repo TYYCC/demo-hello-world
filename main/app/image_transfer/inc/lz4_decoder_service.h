@@ -48,4 +48,14 @@ bool lz4_decoder_service_get_latest_frame(uint8_t** frame_buffer, size_t* frame_
  */
 void lz4_decoder_service_frame_unlock(void);
 
+/**
+ * @brief Processes a chunk of LZ4 compressed data.
+ *
+ * This function is called to feed LZ4 data into the service for decompression.
+ *
+ * @param data Pointer to the data buffer.
+ * @param length Length of the data in bytes.
+ */
+void lz4_decoder_service_process_data(const uint8_t* data, size_t length);
+
 #endif // LZ4_DECODER_SERVICE_H
