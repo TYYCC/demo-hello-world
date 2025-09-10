@@ -29,7 +29,7 @@ static void tcp_server_task(void* pvParameters) {
     int client_socket = -1;
     struct sockaddr_in6 client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
-    uint8_t* recv_buffer = malloc(100 * 1024);  // 增加缓冲区到100KB
+    uint8_t* recv_buffer = heap_caps_malloc(512 * 1024, MALLOC_CAP_SPIRAM);  // 增加缓冲区到512KB
     if (!recv_buffer) {
         ESP_LOGE(TAG, "Failed to allocate recv_buffer");
         vTaskDelete(NULL);
@@ -51,7 +51,7 @@ static void tcp_server_task(void* pvParameters) {
 
         size_t buffer_offset = 0;
         while (s_tcp_server_running) {
-            int len = recv(client_socket, recv_buffer + buffer_offset, (100 * 1024) - buffer_offset, 0);
+            int len = recv(client_socket, recv_buffer + buffer_offset, (512 * 1024) - buffer_offset, 0);
             if (len < 0) {
                 if (errno != EAGAIN && errno != EWOULDBLOCK) {
                     ESP_LOGE(TAG, "Recv failed: errno %d", errno);
@@ -67,10 +67,14 @@ static void tcp_server_task(void* pvParameters) {
             buffer_offset += len;
 
             // 检查缓冲区是否已满
-            if (buffer_offset >= (100 * 1024)) {
+            if (buffer_offset >= (512 * 1024)) {
                 ESP_LOGW(TAG, "Receive buffer full (%d bytes), possible data loss", buffer_offset);
-                // 可以选择清空缓冲区或增加处理速度
-                buffer_offset = 0;
+                // 尝试处理现有数据，而不是直接清空
+                // 如果还是处理不了，再清空缓冲区
+                if (buffer_offset >= (512 * 1024 - 1024)) {  // 留1KB空间
+                    ESP_LOGE(TAG, "Buffer critically full, clearing buffer");
+                    buffer_offset = 0;
+                }
             }
             size_t consumed = 0;
 

@@ -56,11 +56,59 @@ def encode_frame(frame, encoding):
                 print("Warning: Cannot compress image under 90KB")
                 return None, None
     elif encoding == 'lz4':
-        raw_data = frame.tobytes()
-        compressed_data = lz4.frame.compress(raw_data)
-        return compressed_data, None
+        # 先转换为RGB565格式，然后再压缩
+        if len(frame.shape) == 3:
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            height, width = rgb_frame.shape[:2]
+
+            # 转换为RGB565
+            r = rgb_frame[:, :, 0].astype(np.uint16)
+            g = rgb_frame[:, :, 1].astype(np.uint16)
+            b = rgb_frame[:, :, 2].astype(np.uint16)
+
+            r5 = (r >> 3) & 0x1F
+            g6 = (g >> 2) & 0x3F
+            b5 = (b >> 3) & 0x1F
+
+            rgb565 = (r5 << 11) | (g6 << 5) | b5
+            rgb565_bytes = rgb565.tobytes()
+
+            compressed_data = lz4.frame.compress(rgb565_bytes)
+            print(f"Frame LZ4 compressed: {len(rgb565_bytes)} -> {len(compressed_data)} bytes")
+            return compressed_data, None
+        else:
+            raw_data = frame.tobytes()
+            compressed_data = lz4.frame.compress(raw_data)
+            return compressed_data, None
     elif encoding == 'raw':
-        return frame.tobytes(), None
+        # 转换为RGB565格式发送给ESP32
+        if len(frame.shape) == 3:
+            # 转换为RGB格式（OpenCV默认是BGR）
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # 使用NumPy进行高效的RGB565转换
+            height, width = rgb_frame.shape[:2]
+
+            # 提取RGB分量
+            r = rgb_frame[:, :, 0].astype(np.uint16)
+            g = rgb_frame[:, :, 1].astype(np.uint16)
+            b = rgb_frame[:, :, 2].astype(np.uint16)
+
+            # 转换为RGB565
+            r5 = (r >> 3) & 0x1F
+            g6 = (g >> 2) & 0x3F
+            b5 = (b >> 3) & 0x1F
+
+            rgb565 = (r5 << 11) | (g6 << 5) | b5
+
+            # 转换为字节数组
+            rgb565_bytes = rgb565.tobytes()
+
+            print(f"Frame converted to RGB565: {width}x{height}, {len(rgb565_bytes)} bytes")
+            return rgb565_bytes, None
+        else:
+            print(f"Unexpected frame format: shape={frame.shape}")
+            return frame.tobytes(), None
     else:
         print(f"Unknown encoding: {encoding}")
         return None, None
@@ -124,12 +172,17 @@ def send_video_to_esp32(video_source, encoding):
                                 data_type = 0x01  # 默认JPEG
                             
                             data_len = len(encoded_data)  # 数据负载长度
-                            
+
+                            print(f"Sending {encoding} data: {data_len} bytes, type: {data_type}")
+
                             # 构建协议头（使用小端字节序，与ESP32内存布局匹配）
                             protocol_header = sync_word.to_bytes(4, 'little') + \
                                             data_type.to_bytes(1, 'little') + \
                                             data_len.to_bytes(4, 'little')
-                            
+
+                            total_size = len(protocol_header) + data_len
+                            print(f"Total packet size: {total_size} bytes (header: {len(protocol_header)}, data: {data_len})")
+
                             # 发送协议头 + 图像数据
                             s.sendall(protocol_header + encoded_data)
                         except socket.error as e:
