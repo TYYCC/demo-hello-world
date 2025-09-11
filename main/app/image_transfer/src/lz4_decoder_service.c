@@ -26,6 +26,7 @@ static const char *TAG = "lz4_decoder";
 static TaskHandle_t s_lz4_decoder_task_handle = NULL;
 EventGroupHandle_t lz4_decoder_event_group = NULL;
 static SemaphoreHandle_t s_lz4_mutex = NULL;
+static QueueHandle_t s_display_queue = NULL; // 显示队列句柄
 
 // LZ4解压缩缓冲区
 static uint8_t *s_compressed_buffer = NULL;
@@ -36,7 +37,7 @@ static size_t s_compressed_data_received = 0;
 
 static void lz4_decoder_task(void *arg);
 
-bool lz4_decoder_service_init(void) {
+bool lz4_decoder_service_init(QueueHandle_t display_queue) {
     // 创建事件组
     lz4_decoder_event_group = xEventGroupCreate();
     if (lz4_decoder_event_group == NULL) {
@@ -78,6 +79,9 @@ bool lz4_decoder_service_init(void) {
         return false;
     }
     s_max_decompressed_size = 2 * 1024 * 1024;
+
+    // 保存显示队列句柄
+    s_display_queue = display_queue;
 
     // 创建解码器任务
     BaseType_t result = xTaskCreate(
@@ -239,10 +243,11 @@ static void lz4_decoder_task(void *arg) {
                             .frame_buffer = le_buffer
                         };
 
-                        // 获取显示队列并推送帧
-                        QueueHandle_t display_queue = display_queue_init();
-                        if (display_queue) {
-                            display_queue_enqueue(display_queue, &frame_msg);
+                        // 使用保存的显示队列句柄推送帧
+                        if (s_display_queue) {
+                            display_queue_enqueue(s_display_queue, &frame_msg);
+                        } else {
+                            heap_caps_free(le_buffer);
                         }
                     }
                 }

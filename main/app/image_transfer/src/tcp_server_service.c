@@ -138,8 +138,22 @@ static void tcp_server_task(void* pvParameters) {
                     break;
                 }
 
-                // 如果当前模式不是需要的模式，自动切换
-                if (image_transfer_app_get_mode() != required_mode) {
+                // 检查解码器是否已经在运行，而不是频繁切换模式
+                bool decoder_running = false;
+                switch (header->frame_type) {
+                case FRAME_TYPE_JPEG:
+                    decoder_running = jpeg_decoder_service_is_running();
+                    break;
+                case FRAME_TYPE_LZ4:
+                    decoder_running = lz4_decoder_service_is_running();
+                    break;
+                default:
+                    decoder_running = false;
+                    break;
+                }
+                
+                // 如果解码器没有运行，才需要切换模式
+                if (!decoder_running && image_transfer_app_get_mode() != required_mode) {
                     ESP_LOGD(TAG, "Auto-switching mode from %d to %d",
                              image_transfer_app_get_mode(), required_mode);
                     esp_err_t switch_ret = image_transfer_app_set_mode(required_mode);

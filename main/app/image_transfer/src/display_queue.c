@@ -2,7 +2,7 @@
  * @Author: tidycraze 2595256284@qq.com
  * @Date: 2025-09-10 13:37:58
  * @LastEditors: tidycraze 2595256284@qq.com
- * @LastEditTime: 2025-09-10 13:45:12
+ * @LastEditTime: 2025-09-11 17:09:51
  * @FilePath: \demo-hello-world\main\app\image_transfer\src\display_queue.c
  * @Description: 显示队列模块实现，用于管理解码后的图像帧队列
  * 
@@ -24,7 +24,6 @@ QueueHandle_t display_queue_init(void) {
         ESP_LOGE(TAG, "Failed to create display queue");
         return NULL;
     }
-    ESP_LOGI(TAG, "Display queue created successfully");
     return queue;
 }
 

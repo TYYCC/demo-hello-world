@@ -97,7 +97,7 @@ esp_err_t image_transfer_app_set_mode(image_transfer_mode_t mode) {
     switch (mode) {
     case IMAGE_TRANSFER_MODE_LZ4:
         ESP_LOGI(TAG, "Initializing LZ4 decoder service");
-        ret = lz4_decoder_service_init();
+        ret = lz4_decoder_service_init(s_display_queue);
         break;
     case IMAGE_TRANSFER_MODE_JPEG:
         ret = jpeg_decoder_service_init(jpeg_decoder_callback, NULL, s_display_queue);

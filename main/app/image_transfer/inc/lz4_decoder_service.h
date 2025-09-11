@@ -26,9 +26,10 @@ extern EventGroupHandle_t lz4_decoder_event_group;
 
 /**
  * @brief 初始化LZ4解码服务
+ * @param display_queue 显示队列句柄
  * @return 初始化成功返回true，失败返回false
  */
-bool lz4_decoder_service_init(void);
+bool lz4_decoder_service_init(QueueHandle_t display_queue);
 
 /**
  * @brief 反初始化LZ4解码服务

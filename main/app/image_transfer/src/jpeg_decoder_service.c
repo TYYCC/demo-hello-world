@@ -155,11 +155,26 @@ static void jpeg_decode_task(void* pvParameters) {
 
                             // 获取互斥锁，确保UI不在读取缓冲区
                             if (xSemaphoreTake(s_buffer_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                                // 检查是否有缓冲区交换正在挂起
+                                // 检查是否有缓冲区交换正在挂起，如果挂起时间过长则自动清除
                                 if (s_buffer_swap_pending) {
-                                    ESP_LOGW(TAG, "Buffer swap pending, skipping frame");
-                                    xSemaphoreGive(s_buffer_mutex);
-                                    continue;
+                                    static TickType_t last_pending_time = 0;
+                                    TickType_t current_time = xTaskGetTickCount();
+                                    
+                                    // 如果挂起时间超过500ms，自动清除挂起状态
+                                    if (last_pending_time == 0) {
+                                        last_pending_time = current_time;
+                                    }
+                                    
+                                    if ((current_time - last_pending_time) > pdMS_TO_TICKS(500)) {
+                                        ESP_LOGW(TAG, "Buffer swap pending for too long (%lu ms), auto-clearing", 
+                                               pdTICKS_TO_MS(current_time - last_pending_time));
+                                        s_buffer_swap_pending = false;
+                                        last_pending_time = 0;
+                                    } else {
+                                        ESP_LOGW(TAG, "Buffer swap pending, skipping frame");
+                                        xSemaphoreGive(s_buffer_mutex);
+                                        continue;
+                                    }
                                 }
 
                                 // 记录当前帧尺寸
@@ -174,17 +189,27 @@ static void jpeg_decode_task(void* pvParameters) {
                                 // 将解码数据复制到非活跃的UI缓冲区
                                 memcpy(target_buffer, s_decoded_buffer, required_size);
 
-                                // 直接推送到 DisplayQueue（RGB565LE）
-                                frame_msg_t msg = {.magic = FRAME_MSG_MAGIC,
-                                                   .type = FRAME_TYPE_JPEG,
-                                                   .width = (uint16_t)s_frame_width,
-                                                   .height = (uint16_t)s_frame_height,
-                                                   .payload_len = (uint32_t)required_size,
-                                                   .frame_buffer = target_buffer};
-                                if (!display_queue_enqueue(s_display_queue, &msg)) {
-                                    ESP_LOGW(TAG, "Display queue full, dropping oldest frame");
-                                    // 已在 push
-                                    // 内部丢弃最旧帧；当前帧成功入队或失败都不再保留解码副本
+                                // 分配新的缓冲区用于显示队列（避免三重缓冲区被错误释放）
+                                uint8_t* display_buffer = heap_caps_aligned_alloc(
+                                    16, required_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                                if (display_buffer) {
+                                    // 将数据复制到新分配的缓冲区
+                                    memcpy(display_buffer, target_buffer, required_size);
+                                    
+                                    // 推送到 DisplayQueue（RGB565LE）
+                                    frame_msg_t msg = {.magic = FRAME_MSG_MAGIC,
+                                                       .type = FRAME_TYPE_JPEG,
+                                                       .width = (uint16_t)s_frame_width,
+                                                       .height = (uint16_t)s_frame_height,
+                                                       .payload_len = (uint32_t)required_size,
+                                                       .frame_buffer = display_buffer};
+                                    if (!display_queue_enqueue(s_display_queue, &msg)) {
+                                        ESP_LOGW(TAG, "Display queue full, dropping oldest frame");
+                                        // 如果入队失败，释放分配的缓冲区
+                                        heap_caps_free(display_buffer);
+                                    }
+                                } else {
+                                    ESP_LOGE(TAG, "Failed to allocate display buffer");
                                 }
 
                                 // 标记缓冲区交换挂起（供 UI 接口使用仍保留）
