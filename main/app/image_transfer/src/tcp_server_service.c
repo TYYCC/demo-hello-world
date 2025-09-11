@@ -115,15 +115,15 @@ static void tcp_server_task(void* pvParameters) {
                 switch (header->data_type) {
                     case DATA_TYPE_JPEG:
                         required_mode = IMAGE_TRANSFER_MODE_JPEG;
-                        ESP_LOGI(TAG, "Processing JPEG data: %u bytes", header->data_len);
+                        ESP_LOGD(TAG, "Processing JPEG data: %u bytes", header->data_len);
                         break;
                     case DATA_TYPE_LZ4:
                         required_mode = IMAGE_TRANSFER_MODE_LZ4;
-                        ESP_LOGI(TAG, "Processing LZ4 data: %u bytes", header->data_len);
+                        ESP_LOGD(TAG, "Processing LZ4 data: %u bytes", header->data_len);
                         break;
                     case DATA_TYPE_RAW:
                         required_mode = IMAGE_TRANSFER_MODE_RAW;
-                        ESP_LOGI(TAG, "Processing RAW data: %u bytes", header->data_len);
+                        ESP_LOGD(TAG, "Processing RAW data: %u bytes", header->data_len);
                         break;
                     default:
                         ESP_LOGW(TAG, "Unknown data type: 0x%02X", header->data_len);
@@ -132,7 +132,7 @@ static void tcp_server_task(void* pvParameters) {
 
                 // 如果当前模式不是需要的模式，自动切换
                 if (image_transfer_app_get_mode() != required_mode) {
-                    ESP_LOGI(TAG, "Auto-switching mode from %d to %d", image_transfer_app_get_mode(), required_mode);
+                    ESP_LOGD(TAG, "Auto-switching mode from %d to %d", image_transfer_app_get_mode(), required_mode);
                     esp_err_t switch_ret = image_transfer_app_set_mode(required_mode);
                     if (switch_ret != ESP_OK) {
                         ESP_LOGW(TAG, "Failed to auto-switch mode: %d", switch_ret);

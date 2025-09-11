@@ -430,6 +430,15 @@ static void image_render_timer_callback(lv_timer_t* timer)
     uint8_t* frame_buffer = NULL;
     size_t frame_size = 0;
     
+    // 降低帧渲染频率，避免过度刷新
+    static uint32_t last_render_time = 0;
+    uint32_t current_time = lv_tick_get();
+    
+    // 最小帧间隔30ms (约33fps)，避免过度刷新导致的闪烁
+    if (current_time - last_render_time < 30 && last_render_time != 0) {
+        return;
+    }
+    
     // 获取最新帧数据 - 自动检测活跃的解码器
     if (raw_data_service_is_running() && !s_is_rendering && raw_data_service_get_latest_frame(&frame_buffer, &frame_size) && s_canvas && s_canvas_buffer) {
         if (frame_buffer && frame_size > 0) {
@@ -461,7 +470,7 @@ static void image_render_timer_callback(lv_timer_t* timer)
                 // Force canvas refresh
                 lv_obj_invalidate(s_canvas);
 
-                ESP_LOGI(TAG, "RAW frame displayed on canvas: %zu bytes", frame_size);
+                ESP_LOGD(TAG, "RAW frame displayed on canvas: %zu bytes", frame_size);
             } else {
                 ESP_LOGW(TAG, "RAW frame size mismatch: got %zu, expected %zu", frame_size, expected_size);
             }
@@ -476,6 +485,16 @@ static void image_render_timer_callback(lv_timer_t* timer)
             s_latest_frame_width > 0 && s_latest_frame_height > 0 &&
             s_canvas && s_canvas_buffer) {
 
+            // 实现帧率控制，避免过快刷新
+            uint32_t current_time = xTaskGetTickCount();
+            static uint32_t last_render_time = 0;
+            const uint32_t min_frame_interval = pdMS_TO_TICKS(30); // 约30ms，限制为大约30fps
+            
+            if ((current_time - last_render_time) < min_frame_interval) {
+                // 距离上次渲染时间太短，跳过此帧
+                return;
+            }
+
             s_is_rendering = true; // Set rendering flag
 
             // 假设LZ4解压缩后的数据已经是RGB565格式，直接复制到canvas缓冲区
@@ -488,12 +507,16 @@ static void image_render_timer_callback(lv_timer_t* timer)
             size_t expected_size = copy_width * copy_height * 2; // RGB565格式
 
             if (s_latest_frame_width * s_latest_frame_height * 2 >= expected_size) {
-                // 复制RGB565数据到canvas缓冲区
+                // 优化的行拷贝方式，减少逐像素转换的开销
                 for (int y = 0; y < copy_height && y < s_latest_frame_height; y++) {
+                    uint16_t* src_line = rgb565_ptr + (y * s_latest_frame_width);
+                    lv_color_t* dst_line = canvas_ptr + (y * s_canvas_width);
+                    
+                    // 一次处理整行数据，而不是逐像素
                     for (int x = 0; x < copy_width && x < s_latest_frame_width; x++) {
-                        uint16_t rgb565 = *rgb565_ptr++;
-                        // Convert RGB565 to LVGL color format
-                        canvas_ptr[y * s_canvas_width + x] = lv_color_make(
+                        uint16_t rgb565 = src_line[x];
+                        // 转换RGB565到LVGL颜色格式
+                        dst_line[x] = lv_color_make(
                             ((rgb565 >> 11) & 0x1F) << 3,  // R: 5 bits -> 8 bits
                             ((rgb565 >> 5) & 0x3F) << 2,   // G: 6 bits -> 8 bits
                             (rgb565 & 0x1F) << 3           // B: 5 bits -> 8 bits
@@ -501,12 +524,18 @@ static void image_render_timer_callback(lv_timer_t* timer)
                     }
                 }
 
-                // Force canvas refresh
+                // 强制canvas刷新 - 使用完整刷新而不是增量刷新
                 lv_obj_invalidate(s_canvas);
-
-                ESP_LOGI(TAG, "LZ4 frame displayed: %dx%d -> %dx%d",
+                
+                // 等待刷新完成，避免下一帧开始时还在渲染
+                lv_refr_now(NULL);
+                
+                ESP_LOGD(TAG, "LZ4 frame displayed: %dx%d -> %dx%d",
                         s_latest_frame_width, s_latest_frame_height,
                         s_canvas_width, s_canvas_height);
+                
+                // 更新渲染时间戳
+                last_render_time = current_time;
             } else {
                 ESP_LOGW(TAG, "LZ4 frame size too small: %dx%d", s_latest_frame_width, s_latest_frame_height);
             }
@@ -517,35 +546,60 @@ static void image_render_timer_callback(lv_timer_t* timer)
             s_is_rendering = false; // Clear rendering flag
         }
     } else if (jpeg_decoder_service_is_running()) {
-        // JPEG模式 - 使用canvas绘制帧数据
+        // JPEG模式 - 使用安全的方式获取和绘制帧数据
         if (!s_is_rendering) {
-            if (s_has_new_frame && s_latest_frame_buffer &&
-                s_latest_frame_width > 0 && s_latest_frame_height > 0 &&
-                s_canvas && s_canvas_buffer) {
-
-                s_is_rendering = true; // Set rendering flag
-
-                // Convert RGB565 data to LVGL color format and draw on canvas
-                lv_color_t* canvas_ptr = s_canvas_buffer;
-                uint16_t* rgb565_ptr = (uint16_t*)s_latest_frame_buffer;
-
-                // Copy RGB565 data to canvas buffer
-                for (int y = 0; y < s_latest_frame_height && y < s_canvas_height; y++) {
-                    for (int x = 0; x < s_latest_frame_width && x < s_canvas_width; x++) {
-                        uint16_t rgb565 = *rgb565_ptr++;
-                        // Convert RGB565 to LVGL color format
-                        canvas_ptr[y * s_canvas_width + x] = lv_color_make(
-                            ((rgb565 >> 11) & 0x1F) << 3,  // R: 5 bits -> 8 bits
-                            ((rgb565 >> 5) & 0x3F) << 2,   // G: 6 bits -> 8 bits
-                            (rgb565 & 0x1F) << 3           // B: 5 bits -> 8 bits
-                        );
+            uint8_t* frame_buffer = NULL;
+            int frame_width = 0;
+            int frame_height = 0;
+            
+            // 使用新的安全方法获取帧数据（会自动处理缓冲区交换）
+            if (jpeg_decoder_service_get_frame_data(&frame_buffer, &frame_width, &frame_height)) {
+                if (frame_buffer && frame_width > 0 && frame_height > 0 && 
+                    s_canvas && s_canvas_buffer) {
+                    
+                    s_is_rendering = true; // 设置渲染标志
+                    
+                    // 使用DMA优化的全帧复制方式
+                    uint16_t* src_ptr = (uint16_t*)frame_buffer;
+                    lv_color_t* dst_ptr = s_canvas_buffer;
+                    int copy_width = (frame_width < s_canvas_width) ? frame_width : s_canvas_width;
+                    int copy_height = (frame_height < s_canvas_height) ? frame_height : s_canvas_height;
+                    
+                    // 一行一行地复制，并进行颜色格式转换
+                    for (int y = 0; y < copy_height; y++) {
+                        for (int x = 0; x < copy_width; x++) {
+                            uint16_t rgb565 = src_ptr[y * frame_width + x];
+                            // 将RGB565转换为LVGL颜色格式
+                            dst_ptr[y * s_canvas_width + x] = lv_color_make(
+                                ((rgb565 >> 11) & 0x1F) << 3,  // R: 5位 -> 8位
+                                ((rgb565 >> 5) & 0x3F) << 2,   // G: 6位 -> 8位
+                                (rgb565 & 0x1F) << 3           // B: 5位 -> 8位
+                            );
+                        }
                     }
+                    
+                    // 强制canvas刷新 - 使用完整刷新而不是增量刷新
+                    lv_obj_invalidate(s_canvas);
+                    
+                    // 等待刷新完成，避免下一帧开始时还在渲染
+                    lv_refr_now(NULL);
+                    
+                    ESP_LOGD(TAG, "Canvas updated with triple buffer: %dx%d -> %dx%d",
+                            frame_width, frame_height,
+                            s_canvas_width, s_canvas_height);
+                    
+                    // 更新渲染时间戳
+                    last_render_time = current_time;
+                    
+                    s_is_rendering = false; // 清除渲染标志
+                }
+            }
                 }
 
                 // Force canvas refresh
                 lv_obj_invalidate(s_canvas);
 
-                ESP_LOGI(TAG, "Canvas updated: %dx%d -> %dx%d",
+                ESP_LOGD(TAG, "Canvas updated: %dx%d -> %dx%d",
                         s_latest_frame_width, s_latest_frame_height,
                         s_canvas_width, s_canvas_height);
 
@@ -553,8 +607,6 @@ static void image_render_timer_callback(lv_timer_t* timer)
                 s_has_new_frame = false;
 
                 s_is_rendering = false; // Clear rendering flag
-            }
-        }
     }
 }
 
@@ -598,21 +650,39 @@ static void update_ssid_label(void) {
 
 // External function to update JPEG frame data from app layer
 void ui_image_transfer_update_jpeg_frame(const uint8_t* data, size_t length, uint16_t width, uint16_t height) {
-    if (!s_is_running || s_current_mode != IMAGE_TRANSFER_MODE_TCP) {
+    if (!s_is_running) {
         return;
     }
 
-    // Store the frame data for later rendering
-    s_latest_frame_buffer = (uint8_t*)data;
-    s_latest_frame_width = width;
-    s_latest_frame_height = height;
-    s_has_new_frame = true;
-
-    // Validate data size matches expected RGB565 size
-    size_t expected_size = width * height * 2;
-    if (length != expected_size) {
-        ESP_LOGW(TAG, "JPEG frame size mismatch: got %zu, expected %zu", length, expected_size);
+    if (s_current_mode == IMAGE_TRANSFER_MODE_TCP && lz4_decoder_service_is_running()) {
+        static size_t s_current_buffer_size = 0;
+        
+        // 只有当缓冲区不存在或大小不足时才重新分配
+        if (s_latest_frame_buffer == NULL || s_current_buffer_size < length) {
+            if (s_latest_frame_buffer) {
+                free(s_latest_frame_buffer);
+                s_latest_frame_buffer = NULL;
+            }
+            
+            size_t new_size = length * 1.2;
+            s_latest_frame_buffer = heap_caps_malloc(new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (!s_latest_frame_buffer) {
+                ESP_LOGE(TAG, "Failed to allocate frame buffer for LZ4");
+                return;
+            }
+            s_current_buffer_size = new_size;
+            ESP_LOGI(TAG, "Allocated new LZ4 buffer: %zu bytes", new_size);
+        }
+        
+        // 复制数据到帧缓冲区
+        memcpy(s_latest_frame_buffer, data, length);
+        s_latest_frame_width = width;
+        s_latest_frame_height = height;
+        s_has_new_frame = true;
     }
 
-    ESP_LOGI(TAG, "JPEG frame updated: %dx%d, %zu bytes", width, height, length);
+    // 触发渲染过程
+    if (s_image_render_timer) {
+        lv_timer_reset(s_image_render_timer);
+    }
 }

@@ -7,10 +7,10 @@ from tkinter import Tk, filedialog
 import argparse
 import lz4.frame
 
-ESP32_IP = '192.168.76.247'  # 修改为你的 ESP32 IP 地址
+ESP32_IP = '192.168.123.159'  # 修改为你的 ESP32 IP 地址
 ESP32_PORT = 6556           # ESP32 监听的端口
 MAX_IMAGE_SIZE_BYTES = 90 * 1024  # 90KB single buffer
-TARGET_RESOLUTION = (240, 200)
+TARGET_RESOLUTION = (240, 180)
 
 def select_video_file():
     """
@@ -40,7 +40,7 @@ def resize_with_aspect_ratio(image, target_resolution):
 
 def encode_frame(frame, encoding):
     if encoding == 'jpeg':
-        jpeg_quality = 90  # 合理的起始质量
+        jpeg_quality = 10  # 合理的起始质量
         while True:
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality]
             result, encimg = cv2.imencode('.jpg', frame, encode_param)

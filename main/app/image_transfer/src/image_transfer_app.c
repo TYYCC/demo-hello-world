@@ -22,16 +22,17 @@ static void ui_data_callback(const uint8_t* data, size_t length,
     // 根据不同的数据类型处理UI显示
     switch (data_type) {
         case UI_DATA_TYPE_RAW:
-            ESP_LOGI(TAG, "Raw data received: %zu bytes", length);
+            ESP_LOGD(TAG, "Raw data received: %zu bytes", length);
             break;
         case UI_DATA_TYPE_LZ4:
-            ESP_LOGI(TAG, "LZ4 decompressed data: %zu bytes", length);
+            ESP_LOGD(TAG, "LZ4 decompressed data: %zu bytes", length);
             // 调用UI模块更新图像（复用JPEG的更新函数）
             extern void ui_image_transfer_update_jpeg_frame(const uint8_t* data, size_t length, uint16_t width, uint16_t height);
+            // 对于LZ4数据，我们明确指定固定分辨率
             ui_image_transfer_update_jpeg_frame(data, length, 240, 180); // LZ4数据默认分辨率
             break;
         case UI_DATA_TYPE_JPEG:
-            ESP_LOGI(TAG, "JPEG decoded data: %zu bytes, %dx%d", length, width, height);
+            ESP_LOGD(TAG, "JPEG decoded data: %zu bytes, %dx%d", length, width, height);
             // 调用UI模块更新图像
             extern void ui_image_transfer_update_jpeg_frame(const uint8_t* data, size_t length, uint16_t width, uint16_t height);
             ui_image_transfer_update_jpeg_frame(data, length, width, height);

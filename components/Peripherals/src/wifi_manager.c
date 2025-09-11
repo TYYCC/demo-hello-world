@@ -47,7 +47,7 @@ static wifi_config_entry_t wifi_list[MAX_WIFI_LIST_SIZE] = {
     {"TiydC", "22989822"},
 
 };
-static int32_t wifi_list_size = 4;
+static int32_t wifi_list_size = 128;
 
 // 前向声明
 static bool load_wifi_config_from_nvs(char* ssid, size_t ssid_len, char* password,
@@ -188,8 +188,8 @@ esp_err_t wifi_manager_start(void) {
     } else {
         // 如果都没有，则使用默认配置
         ESP_LOGW(TAG, "No saved WiFi configuration found, using default.");
-        strncpy((char*)wifi_config.sta.ssid, "TidyC", sizeof(wifi_config.sta.ssid));
-        strncpy((char*)wifi_config.sta.password, "22989822", sizeof(wifi_config.sta.password));
+        strncpy((char*)wifi_config.sta.ssid, "Sysware-HP", sizeof(wifi_config.sta.ssid));
+        strncpy((char*)wifi_config.sta.password, "12345678", sizeof(wifi_config.sta.password));
     }
 
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK;

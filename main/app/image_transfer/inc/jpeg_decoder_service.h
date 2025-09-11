@@ -42,6 +42,16 @@ EventGroupHandle_t jpeg_decoder_service_get_event_group(void);
 void jpeg_decoder_service_frame_unlock(void);
 
 /**
+ * @brief 获取解码后的帧数据（UI线程使用）
+ * 
+ * @param data 输出参数，指向解码后的帧数据
+ * @param width 输出参数，帧宽度
+ * @param height 输出参数，帧高度
+ * @return bool 是否成功获取帧数据
+ */
+bool jpeg_decoder_service_get_frame_data(uint8_t** data, int* width, int* height);
+
+/**
  * @brief Processes a chunk of JPEG compressed data.
  *
  * This function is called to feed JPEG data into the service for decompression.
