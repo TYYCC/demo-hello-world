@@ -4,7 +4,7 @@
  * @LastEditors: tidycraze 2595256284@qq.com
  * @LastEditTime: 2025-09-10 13:45:12
  * @FilePath: \demo-hello-world\main\app\image_transfer\inc\image_transfer_protocol.h
- * @Description: 
+ * @Description: 该文件用于特殊的图传协议，为协议定义相关宏定义和结构体
  * 
  */
 #ifndef IMAGE_TRANSFER_PROTOCOL_H
@@ -12,27 +12,26 @@
 
 #include <stdint.h>
 
-// Define the synchronization word for the protocol header
+// 协议同步字（魔数）
 #define PROTOCOL_SYNC_WORD 0xAEBC1402
 
-// Define data type constants
+// 数据帧类型定义（根据提示词要求，移除RAW支持）
 typedef enum {
-    DATA_TYPE_JPEG = 0x01,
-    DATA_TYPE_LZ4  = 0x02,
-    DATA_TYPE_RAW  = 0x03,
-} data_type_t;
+    FRAME_TYPE_JPEG = 0x01,  // JPEG压缩帧
+    FRAME_TYPE_LZ4  = 0x02,  // LZ4压缩帧
+    // RAW类型已移除，不再支持
+} frame_type_t;
 
 /**
- * @brief Defines the header structure for the image transfer protocol.
- *
- * This structure is marked with __attribute__((packed)) to ensure that the
- * compiler does not add any padding between the members. This is crucial for
- * correct protocol parsing, as the header is read directly from a byte stream.
+ * @brief 图像传输协议头部结构
+ * 
+ * 使用__attribute__((packed))确保编译器不会在成员之间添加填充，
+ * 这对于直接从字节流读取头部进行正确协议解析至关重要。
  */
 typedef struct {
-    uint32_t sync_word; // Synchronization word (magic number) to identify the start of a frame.
-    uint8_t  data_type; // The type of data in the payload (e.g., JPEG, LZ4, RAW).
-    uint32_t data_len;  // The length of the payload data that follows this header.
+    uint32_t sync_word;   // 同步字（魔数），标识帧的开始
+    uint8_t  frame_type; // 帧数据类型（JPEG或LZ4）
+    uint32_t data_len;   // 有效载荷数据的长度
 } __attribute__((packed)) image_transfer_header_t;
 
 #endif // IMAGE_TRANSFER_PROTOCOL_H

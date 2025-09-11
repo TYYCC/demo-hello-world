@@ -40,7 +40,7 @@ def resize_with_aspect_ratio(image, target_resolution):
 
 def encode_frame(frame, encoding):
     if encoding == 'jpeg':
-        jpeg_quality = 10  # 合理的起始质量
+        jpeg_quality = 70  # 合理的起始质量
         while True:
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality]
             result, encimg = cv2.imencode('.jpg', frame, encode_param)
@@ -56,21 +56,21 @@ def encode_frame(frame, encoding):
                 print("Warning: Cannot compress image under 90KB")
                 return None, None
     elif encoding == 'lz4':
-        # 先转换为RGB565格式，然后再压缩
+        # 先转换为RGB565格式，然后再压缩（按BGR通道构建并进行字节序交换以匹配LVGL配置）
         if len(frame.shape) == 3:
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            height, width = rgb_frame.shape[:2]
+            # OpenCV帧是BGR顺序，直接按BGR提取，避免额外颜色转换
+            b = frame[:, :, 0].astype(np.uint16)
+            g = frame[:, :, 1].astype(np.uint16)
+            r = frame[:, :, 2].astype(np.uint16)
 
-            # 转换为RGB565
-            r = rgb_frame[:, :, 0].astype(np.uint16)
-            g = rgb_frame[:, :, 1].astype(np.uint16)
-            b = rgb_frame[:, :, 2].astype(np.uint16)
-
+            # 构建RGB565（R高位、G中位、B低位）
             r5 = (r >> 3) & 0x1F
             g6 = (g >> 2) & 0x3F
             b5 = (b >> 3) & 0x1F
-
             rgb565 = (r5 << 11) | (g6 << 5) | b5
+
+            # 固件LVGL使用 LV_COLOR_DEPTH=16 且 LV_COLOR_16_SWAP=1，需进行字节序交换
+            rgb565 = rgb565.byteswap()
             rgb565_bytes = rgb565.tobytes()
 
             compressed_data = lz4.frame.compress(rgb565_bytes)
@@ -81,29 +81,24 @@ def encode_frame(frame, encoding):
             compressed_data = lz4.frame.compress(raw_data)
             return compressed_data, None
     elif encoding == 'raw':
-        # 转换为RGB565格式发送给ESP32
+        # 转换为RGB565格式发送给ESP32（按BGR通道构建并进行字节序交换以匹配LVGL配置）
         if len(frame.shape) == 3:
-            # 转换为RGB格式（OpenCV默认是BGR）
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # OpenCV帧是BGR顺序，直接提取
+            b = frame[:, :, 0].astype(np.uint16)
+            g = frame[:, :, 1].astype(np.uint16)
+            r = frame[:, :, 2].astype(np.uint16)
 
-            # 使用NumPy进行高效的RGB565转换
-            height, width = rgb_frame.shape[:2]
-
-            # 提取RGB分量
-            r = rgb_frame[:, :, 0].astype(np.uint16)
-            g = rgb_frame[:, :, 1].astype(np.uint16)
-            b = rgb_frame[:, :, 2].astype(np.uint16)
-
-            # 转换为RGB565
+            # 构建RGB565
             r5 = (r >> 3) & 0x1F
             g6 = (g >> 2) & 0x3F
             b5 = (b >> 3) & 0x1F
-
             rgb565 = (r5 << 11) | (g6 << 5) | b5
 
-            # 转换为字节数组
+            # 匹配固件的LVGL颜色字节序
+            rgb565 = rgb565.byteswap()
             rgb565_bytes = rgb565.tobytes()
 
+            height, width = frame.shape[:2]
             print(f"Frame converted to RGB565: {width}x{height}, {len(rgb565_bytes)} bytes")
             return rgb565_bytes, None
         else:

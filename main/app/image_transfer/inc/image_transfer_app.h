@@ -1,13 +1,19 @@
+/*
+ * @Author: tidycraze 2595256284@qq.com
+ * @Date: 2025-09-10 13:37:58
+ * @LastEditors: tidycraze 2595256284@qq.com
+ * @LastEditTime: 2025-09-10 13:45:12
+ * @FilePath: \demo-hello-world\main\app\image_transfer\inc\image_transfer_app.h
+ * @Description: 图像传输主应用头文件，管理JPEG和LZ4解码服务
+ * 
+ */
 #ifndef IMAGE_TRANSFER_APP_H
 #define IMAGE_TRANSFER_APP_H
 
 #include "esp_err.h"
 #include <stdbool.h>
 #include <stdint.h>
-#include "../../inc/settings_manager.h"  // 使用统一的枚举定义
-
-// 使用 settings_manager.h 中定义的 image_transfer_mode_t
-// 不再重复定义枚举
+#include "../../inc/settings_manager.h"
 
 /**
  * @brief 初始化图像传输应用程序

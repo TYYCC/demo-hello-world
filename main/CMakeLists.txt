@@ -55,15 +55,13 @@ else()
         "app/auto_pairing.c"
         
         # 图像传输模块
+        "app/image_transfer/src/display_queue.c"
         "app/image_transfer/src/image_transfer_app.c"
         "app/image_transfer/src/jpeg_decoder_service.c"
         "app/image_transfer/src/lz4_decoder_service.c"
         "app/image_transfer/src/lz4_image_decoder.c"
-        "app/image_transfer/src/raw_data_service.c"
         "app/image_transfer/src/tcp_server_service.c"
         "app/image_transfer/src/ui_mapping_service.c"
-        "app/image_transfer/src/wifi_image_transfer.c"
-        "app/image_transfer/src/p2p_udp_image_transfer.c"
 
         # app中遥测相关的文件
         "app/Telemetry/src/telemetry_protocol.c"

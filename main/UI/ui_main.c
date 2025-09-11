@@ -36,7 +36,7 @@
 #include "ui_state_manager.h" // 添加状态管理器头文件
 #include "ui_telemetry.h"     // 添加遥测UI头文件
 #include "ui_test.h"
-#include "wifi_image_transfer.h"
+// #include "wifi_image_transfer.h"  // 文件不存在，暂时注释掉
 #include "wifi_manager.h"
 
 // audio receiver is declared in ui.h (ui_audio_receiver_create)

@@ -1,264 +1,263 @@
+/*
+ * @Author: tidycraze 2595256284@qq.com
+ * @Date: 2025-09-10 13:37:58
+ * @LastEditors: tidycraze 2595256284@qq.com
+ * @LastEditTime: 2025-09-11 16:38:16
+ * @FilePath: \demo-hello-world\main\app\image_transfer\src\lz4_decoder_service.c
+ * @Description: LZ4解码服务实现，用于处理LZ4压缩图像数据
+ * 
+ */
 #include "lz4_decoder_service.h"
+#include "display_queue.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "freertos/event_groups.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "lz4.h"
 #include "lz4frame.h"
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 
-static const char* TAG = "LZ4_DECODER_SERVICE";
+static const char *TAG = "lz4_decoder";
 
 // 全局状态变量
-static bool s_lz4_service_running = false;
-static uint8_t* s_compressed_buffer = NULL;
-static uint8_t* s_decompressed_buffer = NULL;
+static TaskHandle_t s_lz4_decoder_task_handle = NULL;
+EventGroupHandle_t lz4_decoder_event_group = NULL;
+static SemaphoreHandle_t s_lz4_mutex = NULL;
+
+// LZ4解压缩缓冲区
+static uint8_t *s_compressed_buffer = NULL;
+static uint8_t *s_decompressed_buffer = NULL;
 static size_t s_max_compressed_size = 0;
 static size_t s_max_decompressed_size = 0;
-static size_t s_actual_decompressed_size = 0;  // 实际解压缩数据大小
-static EventGroupHandle_t s_lz4_event_group = NULL;
-static lz4_decoder_callback_t s_data_callback = NULL;
-static void* s_callback_context = NULL;
+static size_t s_compressed_data_received = 0;
 
-#define LZ4_DATA_READY_BIT (1 << 0)
+static void lz4_decoder_task(void *arg);
 
-
-void lz4_decoder_service_process_data(const uint8_t* data, size_t length) {
-    if (!s_lz4_service_running || !s_data_callback) {
-        ESP_LOGW(TAG, "LZ4 service not running or no callback: running=%d, callback=%p",
-                s_lz4_service_running, s_data_callback);
-        return;
-    }
-
-    ESP_LOGD(TAG, "LZ4 processing data: %zu bytes", length);
-    
-    // 确保压缩缓冲区足够大
-    static size_t buffer_alloc_size = 0;
-    if (!s_compressed_buffer || buffer_alloc_size < length) {
-        if (s_compressed_buffer) {
-            free(s_compressed_buffer);
-        }
-        // 分配额外20%的空间，避免频繁重新分配
-        buffer_alloc_size = length * 1.2;
-        s_compressed_buffer = heap_caps_aligned_alloc(16, buffer_alloc_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!s_compressed_buffer) {
-            ESP_LOGE(TAG, "Failed to allocate compressed buffer");
-            return;
-        }
-        s_max_compressed_size = buffer_alloc_size;
-        ESP_LOGD(TAG, "Allocated new LZ4 compressed buffer: %zu bytes", buffer_alloc_size);
-    }
-    
-    // 复制压缩数据
-    memcpy(s_compressed_buffer, data, length);
-    
-    // 估计解压缩后的大小（LZ4帧格式可能需要更大的缓冲区）
-    // 对于典型的320x240 RGB565图像，原始大小约为150KB
-    // LZ4压缩比通常为2:1到4:1，所以分配更大的缓冲区
-    size_t min_buffer_size = 320 * 240 * 2; // 最小缓冲区：320x240 RGB565
-    size_t estimated_decompressed_size = (length < min_buffer_size) ? min_buffer_size : length * 8;
-
-    ESP_LOGD(TAG, "Estimated decompressed buffer size: %zu bytes (input: %zu)", estimated_decompressed_size, length);
-    
-    // 确保解压缩缓冲区足够大，并使用SPIRAM
-    static size_t decompressed_buffer_alloc_size = 0;
-    if (!s_decompressed_buffer || decompressed_buffer_alloc_size < estimated_decompressed_size) {
-        if (s_decompressed_buffer) {
-            free(s_decompressed_buffer);
-        }
-        
-        // 分配额外20%的空间，避免频繁重新分配
-        decompressed_buffer_alloc_size = estimated_decompressed_size * 1.2;
-        s_decompressed_buffer = heap_caps_aligned_alloc(16, decompressed_buffer_alloc_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!s_decompressed_buffer) {
-            ESP_LOGE(TAG, "Failed to allocate decompressed buffer");
-            return;
-        }
-        s_max_decompressed_size = decompressed_buffer_alloc_size;
-        ESP_LOGD(TAG, "Allocated new LZ4 decompressed buffer: %zu bytes", decompressed_buffer_alloc_size);
-    }
-    
-    // 执行LZ4帧解压缩
-    ESP_LOGD(TAG, "Starting LZ4 frame decompression, input size: %zu", length);
-
-    // 检查LZ4帧格式的魔数 (0x184D2204 for LZ4 frame)
-    if (length >= 4) {
-        uint32_t magic = *(uint32_t*)s_compressed_buffer;
-        ESP_LOGD(TAG, "LZ4 frame magic: 0x%08X", magic);
-    }
-    LZ4F_decompressionContext_t dctx = NULL;
-    LZ4F_errorCode_t errorCode;
-
-    // 创建解压缩上下文
-    errorCode = LZ4F_createDecompressionContext(&dctx, LZ4F_VERSION);
-    if (LZ4F_isError(errorCode)) {
-        ESP_LOGE(TAG, "LZ4F_createDecompressionContext failed: %s", LZ4F_getErrorName(errorCode));
-        return;
-    }
-    ESP_LOGD(TAG, "LZ4 decompression context created successfully");
-
-    // 设置输入和输出缓冲区
-    LZ4F_decompressOptions_t options = {0};
-    size_t srcSize = length;
-    size_t dstSize = s_max_decompressed_size;
-    size_t srcOffset = 0;
-    size_t dstOffset = 0;
-
-    // LZ4帧解压缩可能需要多次调用
-    int max_iterations = 10; // 防止无限循环
-    int iteration = 0;
-    uint32_t start_time = xTaskGetTickCount();
-
-    while (srcOffset < length && iteration < max_iterations) {
-        size_t remainingSrc = length - srcOffset;
-        size_t remainingDst = s_max_decompressed_size - dstOffset;
-
-        ESP_LOGD(TAG, "LZ4 decompression iteration %d: src_offset=%zu/%zu, dst_offset=%zu/%zu",
-                iteration, srcOffset, length, dstOffset, s_max_decompressed_size);
-
-        if (remainingDst < 1024) { // 至少需要1KB的输出空间
-            ESP_LOGE(TAG, "Output buffer nearly full during LZ4 decompression (remaining: %zu)", remainingDst);
-            LZ4F_freeDecompressionContext(dctx);
-            return;
-        }
-
-        size_t result = LZ4F_decompress(dctx,
-                                       s_decompressed_buffer + dstOffset, &remainingDst,
-                                       s_compressed_buffer + srcOffset, &remainingSrc,
-                                       &options);
-
-        if (LZ4F_isError(result)) {
-            ESP_LOGE(TAG, "LZ4F_decompress failed: %s", LZ4F_getErrorName(result));
-            LZ4F_freeDecompressionContext(dctx);
-            return;
-        }
-
-        srcOffset += remainingSrc;
-        dstOffset += remainingDst;
-        iteration++;
-
-        // 每5ms让出CPU时间片，避免阻塞其他任务
-        if ((xTaskGetTickCount() - start_time) > pdMS_TO_TICKS(5)) {
-            vTaskDelay(1);
-            start_time = xTaskGetTickCount();
-        }
-
-        // 如果这是最后一帧，退出循环
-        if (result == 0) {
-            ESP_LOGD(TAG, "LZ4 decompression finished at iteration %d", iteration);
-            break;
-        }
-    }
-
-    if (iteration >= max_iterations) {
-        ESP_LOGW(TAG, "LZ4 decompression reached maximum iterations (%d)", max_iterations);
-    }
-
-    int decompressed_size = (int)dstOffset;
-    ESP_LOGD(TAG, "LZ4 frame decompression completed: %d bytes output (buffer size: %zu)", decompressed_size, s_max_decompressed_size);
-
-    // 清理上下文
-    LZ4F_freeDecompressionContext(dctx);
-    
-    if (decompressed_size > 0) {
-        // 保存实际解压缩数据大小
-        s_actual_decompressed_size = decompressed_size;
-
-        // 设置数据就绪标志
-        xEventGroupSetBits(s_lz4_event_group, LZ4_DATA_READY_BIT);
-
-        // ESP_LOGI(TAG, "LZ4 decompression successful: %zu -> %zu bytes", length, decompressed_size);
-
-        // 调用数据回调
-        s_data_callback(s_decompressed_buffer, decompressed_size, s_callback_context);
-    } else {
-        ESP_LOGE(TAG, "LZ4 decompression failed: %d", decompressed_size);
-    }
-}
-
-// 初始化LZ4解码服务
-esp_err_t lz4_decoder_service_init(lz4_decoder_callback_t data_callback, void* context) {
-    if (s_lz4_service_running) {
-        ESP_LOGW(TAG, "LZ4 decoder service already running");
-        return ESP_FAIL;
-    }
-    
+bool lz4_decoder_service_init(void) {
     // 创建事件组
-    s_lz4_event_group = xEventGroupCreate();
-    if (!s_lz4_event_group) {
+    lz4_decoder_event_group = xEventGroupCreate();
+    if (lz4_decoder_event_group == NULL) {
         ESP_LOGE(TAG, "Failed to create event group");
-        return ESP_FAIL;
-    }
-    
-    s_data_callback = data_callback;
-    s_callback_context = context;
-    s_actual_decompressed_size = 0;  // 重置实际解压缩大小
-    s_lz4_service_running = true;
-    
-    ESP_LOGI(TAG, "LZ4 decoder service initialized");
-    return ESP_OK;
-}
-
-// 停止LZ4解码服务
-void lz4_decoder_service_deinit(void) {
-    if (!s_lz4_service_running) {
-        return;
-    }
-    
-    s_lz4_service_running = false;
-    
-    // 释放缓冲区
-    if (s_compressed_buffer) {
-        free(s_compressed_buffer);
-        s_compressed_buffer = NULL;
-        s_max_compressed_size = 0;
-    }
-
-    if (s_decompressed_buffer) {
-        free(s_decompressed_buffer);
-        s_decompressed_buffer = NULL;
-        s_max_decompressed_size = 0;
-        s_actual_decompressed_size = 0;
-    }
-    
-    // 删除事件组
-    if (s_lz4_event_group) {
-        vEventGroupDelete(s_lz4_event_group);
-        s_lz4_event_group = NULL;
-    }
-    
-    s_data_callback = NULL;
-    s_callback_context = NULL;
-    
-    ESP_LOGI(TAG, "LZ4 decoder service stopped");
-}
-
-// 获取LZ4解码服务状态
-bool lz4_decoder_service_is_running(void) {
-    return s_lz4_service_running;
-}
-
-// 获取事件组句柄
-EventGroupHandle_t lz4_decoder_service_get_event_group(void) {
-    return s_lz4_event_group;
-}
-
-// 获取最新解压缩数据
-bool lz4_decoder_service_get_latest_frame(uint8_t** frame_buffer, size_t* frame_size) {
-    if (!s_lz4_service_running || !s_decompressed_buffer || s_actual_decompressed_size == 0) {
         return false;
     }
 
-    *frame_buffer = s_decompressed_buffer;
-    *frame_size = s_actual_decompressed_size;
-    ESP_LOGD(TAG, "LZ4 get_latest_frame: returning %zu bytes", s_actual_decompressed_size);
+    // 创建互斥锁
+    s_lz4_mutex = xSemaphoreCreateMutex();
+    if (s_lz4_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create mutex");
+        vEventGroupDelete(lz4_decoder_event_group);
+        lz4_decoder_event_group = NULL;
+        return false;
+    }
+
+    // 分配压缩数据缓冲区（最大1MB）
+    s_compressed_buffer = heap_caps_malloc(1024 * 1024, MALLOC_CAP_SPIRAM);
+    if (s_compressed_buffer == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate compressed buffer");
+        vSemaphoreDelete(s_lz4_mutex);
+        vEventGroupDelete(lz4_decoder_event_group);
+        s_lz4_mutex = NULL;
+        lz4_decoder_event_group = NULL;
+        return false;
+    }
+    s_max_compressed_size = 1024 * 1024;
+
+    // 分配解压缩数据缓冲区（最大2MB）
+    s_decompressed_buffer = heap_caps_malloc(2 * 1024 * 1024, MALLOC_CAP_SPIRAM);
+    if (s_decompressed_buffer == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate decompressed buffer");
+        heap_caps_free(s_compressed_buffer);
+        vSemaphoreDelete(s_lz4_mutex);
+        vEventGroupDelete(lz4_decoder_event_group);
+        s_compressed_buffer = NULL;
+        s_lz4_mutex = NULL;
+        lz4_decoder_event_group = NULL;
+        return false;
+    }
+    s_max_decompressed_size = 2 * 1024 * 1024;
+
+    // 创建解码器任务
+    BaseType_t result = xTaskCreate(
+        lz4_decoder_task,
+        "lz4_decoder",
+        4096,
+        NULL,
+        5,
+        &s_lz4_decoder_task_handle
+    );
+
+    if (result != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create LZ4 decoder task");
+        heap_caps_free(s_compressed_buffer);
+        heap_caps_free(s_decompressed_buffer);
+        vSemaphoreDelete(s_lz4_mutex);
+        vEventGroupDelete(lz4_decoder_event_group);
+        s_compressed_buffer = NULL;
+        s_decompressed_buffer = NULL;
+        s_lz4_mutex = NULL;
+        lz4_decoder_event_group = NULL;
+        return false;
+    }
+
+    ESP_LOGI(TAG, "LZ4 decoder service initialized");
     return true;
 }
 
-// 帧数据解锁（允许新的数据写入）
-void lz4_decoder_service_frame_unlock(void) {
-    if (s_lz4_event_group) {
-        xEventGroupClearBits(s_lz4_event_group, LZ4_DATA_READY_BIT);
+void lz4_decoder_service_deinit(void) {
+    // 发送停止信号
+    if (lz4_decoder_event_group) {
+        xEventGroupSetBits(lz4_decoder_event_group, LZ4_DECODER_STOP_BIT);
     }
+
+    // 等待任务结束
+    if (s_lz4_decoder_task_handle) {
+        vTaskDelete(s_lz4_decoder_task_handle);
+        s_lz4_decoder_task_handle = NULL;
+    }
+
+    // 清理资源
+    if (s_compressed_buffer) {
+        heap_caps_free(s_compressed_buffer);
+        s_compressed_buffer = NULL;
+    }
+
+    if (s_decompressed_buffer) {
+        heap_caps_free(s_decompressed_buffer);
+        s_decompressed_buffer = NULL;
+    }
+
+    if (s_lz4_mutex) {
+        vSemaphoreDelete(s_lz4_mutex);
+        s_lz4_mutex = NULL;
+    }
+
+    if (lz4_decoder_event_group) {
+        vEventGroupDelete(lz4_decoder_event_group);
+        lz4_decoder_event_group = NULL;
+    }
+
+    ESP_LOGI(TAG, "LZ4 decoder service deinitialized");
+}
+
+bool lz4_decoder_service_is_running(void) {
+    return s_lz4_decoder_task_handle != NULL;
+}
+
+EventGroupHandle_t lz4_decoder_service_get_event_group(void) {
+    return lz4_decoder_event_group;
+}
+
+void lz4_decoder_service_frame_unlock(void) {
+    // LZ4解码器不需要帧解锁功能，保留接口兼容性
+}
+
+void lz4_decoder_service_process_data(const uint8_t *data, uint32_t data_len) {
+    if (xSemaphoreTake(s_lz4_mutex, portMAX_DELAY) == pdTRUE) {
+        // 检查是否有足够空间
+        if (s_compressed_data_received + data_len > s_max_compressed_size) {
+            ESP_LOGE(TAG, "LZ4 compressed data buffer overflow");
+            xSemaphoreGive(s_lz4_mutex);
+            return;
+        }
+
+        // 复制数据到缓冲区
+        memcpy(s_compressed_buffer + s_compressed_data_received, data, data_len);
+        s_compressed_data_received += data_len;
+
+        // 发送数据就绪信号
+        xEventGroupSetBits(lz4_decoder_event_group, LZ4_DECODER_DATA_READY_BIT);
+
+        xSemaphoreGive(s_lz4_mutex);
+    }
+}
+
+static void lz4_decoder_task(void *arg) {
+    ESP_LOGI(TAG, "LZ4 decoder task started");
+
+    while (1) {
+        // 等待数据就绪或停止信号
+        EventBits_t bits = xEventGroupWaitBits(
+            lz4_decoder_event_group,
+            LZ4_DECODER_DATA_READY_BIT | LZ4_DECODER_STOP_BIT,
+            pdTRUE,
+            pdFALSE,
+            portMAX_DELAY
+        );
+
+        if (bits & LZ4_DECODER_STOP_BIT) {
+            break;
+        }
+
+        if (bits & LZ4_DECODER_DATA_READY_BIT) {
+            if (xSemaphoreTake(s_lz4_mutex, portMAX_DELAY) == pdTRUE) {
+                // 执行LZ4帧解压缩
+                LZ4F_decompressionContext_t dctx = NULL;
+                LZ4F_errorCode_t errorCode;
+
+                // 创建解压缩上下文
+                errorCode = LZ4F_createDecompressionContext(&dctx, LZ4F_VERSION);
+                if (LZ4F_isError(errorCode)) {
+                    ESP_LOGE(TAG, "LZ4F_createDecompressionContext failed: %s", LZ4F_getErrorName(errorCode));
+                    xSemaphoreGive(s_lz4_mutex);
+                    continue;
+                }
+
+                // 设置输入和输出缓冲区
+                LZ4F_decompressOptions_t options = {0};
+                size_t srcSize = s_compressed_data_received;
+                size_t dstSize = s_max_decompressed_size;
+
+                // LZ4帧解压缩
+                size_t result = LZ4F_decompress(dctx, s_decompressed_buffer, &dstSize,
+                                               s_compressed_buffer, &srcSize, &options);
+
+                if (LZ4F_isError(result)) {
+                    ESP_LOGE(TAG, "LZ4F_decompress failed: %s", LZ4F_getErrorName(result));
+                } else if (dstSize > 0) {
+                    // 假设解压缩数据为RGB565格式，转换为RGB565LE
+                    size_t pixels = dstSize / 2;
+                    uint16_t *src = (uint16_t *)s_decompressed_buffer;
+                    
+                    // 分配LE缓冲区
+                    uint8_t *le_buffer = heap_caps_malloc(dstSize, MALLOC_CAP_SPIRAM);
+                    if (le_buffer) {
+                        uint16_t *dst = (uint16_t *)le_buffer;
+                        for (size_t i = 0; i < pixels; i++) {
+                            uint16_t pixel = src[i];
+                            dst[i] = (pixel >> 8) | (pixel << 8); // 字节序转换
+                        }
+
+                        // 创建帧消息并推送到显示队列
+                        frame_msg_t frame_msg = {
+                            .type = FRAME_TYPE_LZ4,
+                            .width = 240,  // 假设标准尺寸
+                            .height = 180, // 假设标准尺寸
+                            .payload_len = dstSize,
+                            .frame_buffer = le_buffer
+                        };
+
+                        // 获取显示队列并推送帧
+                        QueueHandle_t display_queue = display_queue_init();
+                        if (display_queue) {
+                            display_queue_enqueue(display_queue, &frame_msg);
+                        }
+                    }
+                }
+
+                // 清理上下文
+                LZ4F_freeDecompressionContext(dctx);
+
+                // 重置数据缓冲区
+                s_compressed_data_received = 0;
+
+                xSemaphoreGive(s_lz4_mutex);
+            }
+        }
+    }
+
+    ESP_LOGI(TAG, "LZ4 decoder task stopped");
+    vTaskDelete(NULL);
 }

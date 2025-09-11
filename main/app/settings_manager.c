@@ -74,8 +74,7 @@ void settings_manager_init(void) {
 
 void settings_set_transfer_mode(image_transfer_mode_t mode) {
     if (mode == IMAGE_TRANSFER_MODE_TCP || mode == IMAGE_TRANSFER_MODE_UDP ||
-        mode == IMAGE_TRANSFER_MODE_RAW || mode == IMAGE_TRANSFER_MODE_LZ4 ||
-        mode == IMAGE_TRANSFER_MODE_JPEG) {
+        mode == IMAGE_TRANSFER_MODE_LZ4 || mode == IMAGE_TRANSFER_MODE_JPEG) {
         if (g_transfer_mode != mode) {
             g_transfer_mode = mode;
             save_settings_to_nvs();

@@ -2,6 +2,7 @@
 
 idf_component_register(
     SRCS
+        "src/display_queue.c"
         "src/image_transfer_app.c"
         "src/jpeg_decoder_service.c"
         "src/lz4_decoder_service.c"
@@ -9,8 +10,7 @@ idf_component_register(
         "src/raw_data_service.c"
         "src/tcp_server_service.c"
         "src/ui_mapping_service.c"
-        "src/wifi_image_transfer.c"
-        "src/p2p_udp_image_transfer.c"
+        # "src/p2p_udp_image_transfer.c"
     
     INCLUDE_DIRS
         "inc"

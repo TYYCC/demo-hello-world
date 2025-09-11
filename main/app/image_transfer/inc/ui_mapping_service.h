@@ -1,10 +1,18 @@
+/*
+ * @Author: tidycraze 2595256284@qq.com
+ * @Date: 2025-09-10 13:01:26
+ * @LastEditors: tidycraze 2595256284@qq.com
+ * @LastEditTime: 2025-09-11 16:55:57
+ * @FilePath: \demo-hello-world\main\app\image_transfer\inc\ui_mapping_service.h
+ * @Description: 
+ * 
+ */
 #ifndef UI_MAPPING_SERVICE_H
 #define UI_MAPPING_SERVICE_H
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "esp_err.h"
-#include "raw_data_service.h"
 #include "lz4_decoder_service.h"
 #include "jpeg_decoder_service.h"
 #include <stdbool.h>
@@ -12,7 +20,6 @@
 
 // UI数据类型枚举
 typedef enum {
-    UI_DATA_TYPE_RAW,   // 原始数据
     UI_DATA_TYPE_LZ4,   // LZ4解压缩数据
     UI_DATA_TYPE_JPEG   // JPEG解码数据
 } ui_data_type_t;
@@ -47,11 +54,7 @@ bool ui_mapping_service_is_running(void);
  */
 EventGroupHandle_t ui_mapping_service_get_event_group(void);
 
-/**
- * @brief 获取原始数据映射回调
- * @return raw_data_callback_t 原始数据回调函数
- */
-raw_data_callback_t ui_mapping_service_get_raw_callback(void);
+
 
 /**
  * @brief 获取LZ4数据映射回调
