@@ -11,6 +11,8 @@
 #include "display_queue.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_jpeg_common.h"
+#include "esp_jpeg_dec.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
@@ -221,18 +223,14 @@ static void lz4_decoder_task(void *arg) {
                 if (LZ4F_isError(result)) {
                     ESP_LOGE(TAG, "LZ4F_decompress failed: %s", LZ4F_getErrorName(result));
                 } else if (dstSize > 0) {
-                    // 假设解压缩数据为RGB565格式，转换为RGB565LE
-                    size_t pixels = dstSize / 2;
-                    uint16_t *src = (uint16_t *)s_decompressed_buffer;
+                    // Python脚本已经发送了BE格式的RGB565数据，直接使用
+                    // 不需要字节序转换，因为LVGL配置了LV_COLOR_16_SWAP=1
                     
-                    // 分配LE缓冲区
-                    uint8_t *le_buffer = heap_caps_malloc(dstSize, MALLOC_CAP_SPIRAM);
-                    if (le_buffer) {
-                        uint16_t *dst = (uint16_t *)le_buffer;
-                        for (size_t i = 0; i < pixels; i++) {
-                            uint16_t pixel = src[i];
-                            dst[i] = (pixel >> 8) | (pixel << 8); // 字节序转换
-                        }
+                    // 分配显示缓冲区
+                    uint8_t *display_buffer = jpeg_calloc_align(dstSize, 16);
+                    if (display_buffer) {
+                        // 直接复制解压缩的数据，无需字节序转换
+                        memcpy(display_buffer, s_decompressed_buffer, dstSize);
 
                         // 创建帧消息并推送到显示队列
                         frame_msg_t frame_msg = {
@@ -240,15 +238,20 @@ static void lz4_decoder_task(void *arg) {
                             .width = 240,  // 假设标准尺寸
                             .height = 180, // 假设标准尺寸
                             .payload_len = dstSize,
-                            .frame_buffer = le_buffer
+                            .frame_buffer = display_buffer
                         };
 
                         // 使用保存的显示队列句柄推送帧
                         if (s_display_queue) {
-                            display_queue_enqueue(s_display_queue, &frame_msg);
+                            if (!display_queue_enqueue(s_display_queue, &frame_msg)) {
+                                ESP_LOGW(TAG, "Display queue full, dropping LZ4 frame");
+                                jpeg_free_align(display_buffer);
+                            }
                         } else {
-                            heap_caps_free(le_buffer);
+                            jpeg_free_align(display_buffer);
                         }
+                    } else {
+                        ESP_LOGE(TAG, "Failed to allocate LZ4 display buffer");
                     }
                 }
 

@@ -34,8 +34,8 @@ static QueueHandle_t s_display_queue = NULL; // 显示队列句柄
 static void jpeg_decode_task(void* pvParameters) {
     // 初始化JPEG解码器
     jpeg_dec_config_t config = DEFAULT_JPEG_DEC_CONFIG();
-    // 提示词要求：最终显示缓冲为 RGB565LE
-    config.output_type = JPEG_PIXEL_FORMAT_RGB565_LE;
+    // LVGL配置了LV_COLOR_16_SWAP=1，需要使用BE格式以匹配字节序
+    config.output_type = JPEG_PIXEL_FORMAT_RGB565_BE;
 
     jpeg_error_t dec_ret;
     jpeg_dec_handle_t jpeg_dec = NULL;
@@ -170,12 +170,23 @@ void jpeg_decoder_service_process_data(const uint8_t* data, size_t length, uint1
 
     ESP_LOGD(TAG, "Processing JPEG data: %zu bytes, expected size: %ux%u", length, width, height);
 
+    // 验证JPEG数据完整性
+    if (length < 4 || data[0] != 0xFF || data[1] != 0xD8) {
+        ESP_LOGE(TAG, "Invalid JPEG data: missing SOI marker");
+        return;
+    }
+    
+    // 检查JPEG结束标记
+    if (data[length-2] != 0xFF || data[length-1] != 0xD9) {
+        ESP_LOGW(TAG, "JPEG data may be incomplete: missing EOI marker");
+    }
+
     // 确保JPEG缓冲区足够大
     if (!s_jpeg_buffer || s_max_jpeg_size < length) {
         if (s_jpeg_buffer) {
-            free(s_jpeg_buffer);
+            jpeg_free_align(s_jpeg_buffer);
         }
-        s_jpeg_buffer = heap_caps_aligned_alloc(16, length, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        s_jpeg_buffer = jpeg_calloc_align(length, 16);
         if (!s_jpeg_buffer) {
             ESP_LOGE(TAG, "Failed to allocate JPEG buffer");
             return;
@@ -256,7 +267,7 @@ void jpeg_decoder_service_deinit(void) {
 
     // 释放缓冲区
     if (s_jpeg_buffer) {
-        free(s_jpeg_buffer);
+        jpeg_free_align(s_jpeg_buffer);
         s_jpeg_buffer = NULL;
         s_max_jpeg_size = 0;
     }
