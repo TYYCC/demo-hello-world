@@ -46,8 +46,10 @@ bool lz4_decoder_service_is_running(void);
  * @brief 处理LZ4压缩数据
  * @param data LZ4数据指针
  * @param data_len 数据长度
+ * @param width 图像宽度（从协议头部获取）
+ * @param height 图像高度（从协议头部获取）
  */
-void lz4_decoder_service_process_data(const uint8_t *data, uint32_t data_len);
+void lz4_decoder_service_process_data(const uint8_t *data, uint32_t data_len, uint16_t width, uint16_t height);
 
 /**
  * @brief 解锁当前帧，允许处理下一帧

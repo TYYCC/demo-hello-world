@@ -125,11 +125,11 @@ static void tcp_server_task(void* pvParameters) {
                 switch (header->frame_type) {
                 case FRAME_TYPE_JPEG:
                     required_mode = IMAGE_TRANSFER_MODE_JPEG;
-                    ESP_LOGD(TAG, "Processing JPEG data: %u bytes", header->data_len);
+                    ESP_LOGD(TAG, "Processing JPEG data: %ux%u, %u bytes", header->width, header->height, header->data_len);
                     break;
                 case FRAME_TYPE_LZ4:
                     required_mode = IMAGE_TRANSFER_MODE_LZ4;
-                    ESP_LOGD(TAG, "Processing LZ4 data: %u bytes", header->data_len);
+                    ESP_LOGD(TAG, "Processing LZ4 data: %ux%u, %u bytes", header->width, header->height, header->data_len);
                     break;
                 default:
                     // 未知类型，默认为JPEG
@@ -169,14 +169,14 @@ static void tcp_server_task(void* pvParameters) {
                 switch (header->frame_type) {
                 case FRAME_TYPE_JPEG:
                     if (jpeg_decoder_service_is_running()) {
-                        jpeg_decoder_service_process_data(payload, header->data_len);
+                        jpeg_decoder_service_process_data(payload, header->data_len, header->width, header->height);
                     } else {
                         ESP_LOGW(TAG, "JPEG decoder not running, skipping data processing");
                     }
                     break;
                 case FRAME_TYPE_LZ4:
                     if (lz4_decoder_service_is_running()) {
-                        lz4_decoder_service_process_data(payload, header->data_len);
+                        lz4_decoder_service_process_data(payload, header->data_len, header->width, header->height);
                     } else {
                         ESP_LOGW(TAG, "LZ4 decoder not running, skipping data processing");
                     }

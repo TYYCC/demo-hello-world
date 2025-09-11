@@ -10,6 +10,8 @@
 #include "display_queue.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_jpeg_common.h"
+#include "esp_jpeg_dec.h"
 
 static const char *TAG = "display_queue";
 
@@ -95,7 +97,7 @@ bool display_queue_dequeue(QueueHandle_t queue, frame_msg_t *frame_msg, TickType
  */
 void display_queue_free_frame(frame_msg_t *frame_msg) {
     if (frame_msg != NULL && frame_msg->frame_buffer != NULL) {
-        heap_caps_free(frame_msg->frame_buffer);
+        jpeg_free_align(frame_msg->frame_buffer);
         frame_msg->frame_buffer = NULL;
         frame_msg->magic = 0; // 清除魔术数
     }

@@ -158,7 +158,7 @@ void lz4_decoder_service_frame_unlock(void) {
     // LZ4解码器不需要帧解锁功能，保留接口兼容性
 }
 
-void lz4_decoder_service_process_data(const uint8_t *data, uint32_t data_len) {
+void lz4_decoder_service_process_data(const uint8_t *data, uint32_t data_len, uint16_t width, uint16_t height) {
     if (xSemaphoreTake(s_lz4_mutex, portMAX_DELAY) == pdTRUE) {
         // 检查是否有足够空间
         if (s_compressed_data_received + data_len > s_max_compressed_size) {

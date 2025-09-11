@@ -374,7 +374,8 @@ static void image_render_timer_callback(lv_timer_t* timer) {
 
     // 从 DisplayQueue 获取帧（JPEG/LZ4 均推送为 RGB565LE）
     frame_msg_t msg;
-    if (!s_is_rendering && display_queue_dequeue(display_queue_init(), &msg, 0)) {
+    QueueHandle_t display_queue = image_transfer_app_get_display_queue();
+    if (!s_is_rendering && display_queue && display_queue_dequeue(display_queue, &msg, 0)) {
         if (msg.frame_buffer && s_canvas && s_canvas_buffer) {
             s_is_rendering = true;
             uint16_t* src_ptr = (uint16_t*)msg.frame_buffer;
@@ -383,6 +384,8 @@ static void image_render_timer_callback(lv_timer_t* timer) {
             int frame_height = msg.height;
             int copy_width = (frame_width < s_canvas_width) ? frame_width : s_canvas_width;
             int copy_height = (frame_height < s_canvas_height) ? frame_height : s_canvas_height;
+            
+            // 直接复制RGB565数据，因为LVGL也使用RGB565格式
             for (int y = 0; y < copy_height; y++) {
                 size_t line_bytes = (size_t)copy_width * sizeof(lv_color_t);
                 memcpy(&dst_ptr[y * s_canvas_width], &src_ptr[y * frame_width], line_bytes);

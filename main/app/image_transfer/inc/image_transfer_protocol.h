@@ -27,11 +27,15 @@ typedef enum {
  * 
  * 使用__attribute__((packed))确保编译器不会在成员之间添加填充，
  * 这对于直接从字节流读取头部进行正确协议解析至关重要。
+ * 
+ * 协议格式：sync_word(4) + data_type(1) + width(2) + height(2) + data_len(4) = 13字节
  */
 typedef struct {
     uint32_t sync_word;   // 同步字（魔数），标识帧的开始
-    uint8_t  frame_type; // 帧数据类型（JPEG或LZ4）
-    uint32_t data_len;   // 有效载荷数据的长度
+    uint8_t  frame_type;  // 帧数据类型（JPEG或LZ4）
+    uint16_t width;       // 图片宽度
+    uint16_t height;      // 图片高度
+    uint32_t data_len;    // 有效载荷数据的长度
 } __attribute__((packed)) image_transfer_header_t;
 
 #endif // IMAGE_TRANSFER_PROTOCOL_H

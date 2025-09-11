@@ -13,6 +13,8 @@
 #include "esp_err.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "../../inc/settings_manager.h"
 
 /**
@@ -63,5 +65,11 @@ void image_transfer_app_deinit(void);
  * @return bool 运行状态
  */
 bool image_transfer_app_is_running(void);
+
+/**
+ * @brief 获取显示队列句柄
+ * @return QueueHandle_t 显示队列句柄，如果未初始化返回NULL
+ */
+QueueHandle_t image_transfer_app_get_display_queue(void);
 
 #endif // IMAGE_TRANSFER_APP_H

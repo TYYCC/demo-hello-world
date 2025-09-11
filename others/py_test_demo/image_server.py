@@ -8,7 +8,7 @@ from tkinter import Tk, filedialog
 import argparse
 import lz4.frame
 
-ESP32_IP = '192.168.123.159'  # 修改为你的 ESP32 IP 地址
+ESP32_IP = '192.168.76.247'  # 修改为你的 ESP32 IP 地址
 ESP32_PORT = 6556           # ESP32 监听的端口
 MAX_IMAGE_SIZE_BYTES = 90 * 1024  # 90KB single buffer
 TARGET_RESOLUTION = (240, 180)
@@ -41,7 +41,7 @@ def resize_with_aspect_ratio(image, target_resolution):
 
 def encode_frame(frame, encoding):
     if encoding == 'jpeg':
-        jpeg_quality = 70  # 合理的起始质量
+        jpeg_quality = 90  # 合理的起始质量
         while True:
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality]
             result, encimg = cv2.imencode('.jpg', frame, encode_param)
@@ -158,6 +158,8 @@ def send_video_to_esp32(video_source, encoding):
                             # typedef struct {
                             #     uint32_t sync_word;   // 同步字（魔数）
                             #     uint8_t  frame_type;  // 帧数据类型
+                            #     uint16_t width;       // 图片宽度
+                            #     uint16_t height;      // 图片高度
                             #     uint32_t data_len;    // 有效载荷数据的长度
                             # } __attribute__((packed)) image_transfer_header_t;
                             
@@ -171,13 +173,15 @@ def send_video_to_esp32(video_source, encoding):
                             else:
                                 frame_type = 0x01  # 默认JPEG
                             
+                            # 获取帧的实际尺寸
+                            height, width = resized_frame.shape[:2]
                             data_len = len(encoded_data)  # 数据负载长度
 
-                            print(f"Sending {encoding} frame: {data_len} bytes, type: 0x{frame_type:02X}")
+                            print(f"Sending {encoding} frame: {width}x{height}, {data_len} bytes, type: 0x{frame_type:02X}")
 
                             # 构建协议头（使用小端字节序，严格按照ESP32结构体布局）
-                            # 注意：ESP32使用__attribute__((packed))，确保无填充字节
-                            protocol_header = struct.pack('<IBI', sync_word, frame_type, data_len)
+                            # 格式：sync_word(4) + frame_type(1) + width(2) + height(2) + data_len(4) = 13字节
+                            protocol_header = struct.pack('<IBHHI', sync_word, frame_type, width, height, data_len)
 
                             total_size = len(protocol_header) + data_len
                             print(f"Total packet size: {total_size} bytes (header: {len(protocol_header)}, payload: {data_len})")

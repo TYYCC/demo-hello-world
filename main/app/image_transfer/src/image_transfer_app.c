@@ -183,3 +183,8 @@ void image_transfer_app_deinit(void) {
 bool image_transfer_app_is_running(void) {
     return s_app_running;
 }
+
+// 获取显示队列句柄
+QueueHandle_t image_transfer_app_get_display_queue(void) {
+    return s_display_queue;
+}

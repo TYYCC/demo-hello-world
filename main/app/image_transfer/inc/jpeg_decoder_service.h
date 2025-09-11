@@ -48,8 +48,10 @@ bool jpeg_decoder_service_is_running(void);
  * @brief 处理JPEG数据
  * @param data JPEG数据指针
  * @param length 数据长度
+ * @param width 图像宽度（从协议头部获取）
+ * @param height 图像高度（从协议头部获取）
  */
-void jpeg_decoder_service_process_data(const uint8_t *data, size_t length);
+void jpeg_decoder_service_process_data(const uint8_t *data, size_t length, uint16_t width, uint16_t height);
 
 /**
  * @brief 解锁当前帧，允许处理下一帧
