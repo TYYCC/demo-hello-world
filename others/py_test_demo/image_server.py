@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import time
 import sys
+import struct
 from tkinter import Tk, filedialog
 import argparse
 import lz4.frame
@@ -151,32 +152,36 @@ def send_video_to_esp32(video_source, encoding):
                         if not encoded_data:
                             continue
 
-                        # 3. 发送图像数据（按照TCP图传协议格式）
+                        # 3. 发送图像数据（按照ESP32 TCP图传协议格式）
                         try:
-                            # 构建协议数据包
-                            sync_word = 0xAEBC1402  # 同步头/魔数
+                            # 构建协议数据包 - 严格按照ESP32协议头结构
+                            # typedef struct {
+                            #     uint32_t sync_word;   // 同步字（魔数）
+                            #     uint8_t  frame_type;  // 帧数据类型
+                            #     uint32_t data_len;    // 有效载荷数据的长度
+                            # } __attribute__((packed)) image_transfer_header_t;
                             
-                            # 确定数据类型
+                            sync_word = 0xAEBC1402  # 协议同步字（魔数）
+                            
+                            # 确定帧类型（与ESP32枚举值匹配）
                             if encoding == 'jpeg':
-                                data_type = 0x01  # JPEG编码
+                                frame_type = 0x01  # FRAME_TYPE_JPEG
                             elif encoding == 'lz4':
-                                data_type = 0x02  # LZ4压缩
-                            elif encoding == 'raw':
-                                data_type = 0x03  # 原始数据
+                                frame_type = 0x02  # FRAME_TYPE_LZ4
                             else:
-                                data_type = 0x01  # 默认JPEG
+                                frame_type = 0x01  # 默认JPEG
                             
                             data_len = len(encoded_data)  # 数据负载长度
 
-                            print(f"Sending {encoding} data: {data_len} bytes, type: {data_type}")
+                            print(f"Sending {encoding} frame: {data_len} bytes, type: 0x{frame_type:02X}")
 
-                            # 构建协议头（使用小端字节序，与ESP32内存布局匹配）
-                            protocol_header = sync_word.to_bytes(4, 'little') + \
-                                            data_type.to_bytes(1, 'little') + \
-                                            data_len.to_bytes(4, 'little')
+                            # 构建协议头（使用小端字节序，严格按照ESP32结构体布局）
+                            # 注意：ESP32使用__attribute__((packed))，确保无填充字节
+                            protocol_header = struct.pack('<IBI', sync_word, frame_type, data_len)
 
                             total_size = len(protocol_header) + data_len
-                            print(f"Total packet size: {total_size} bytes (header: {len(protocol_header)}, data: {data_len})")
+                            print(f"Total packet size: {total_size} bytes (header: {len(protocol_header)}, payload: {data_len})")
+                            print(f"Header bytes: {protocol_header.hex()}")
 
                             # 发送协议头 + 图像数据
                             s.sendall(protocol_header + encoded_data)
