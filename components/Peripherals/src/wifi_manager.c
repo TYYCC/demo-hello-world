@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
+#include "freertos/timers.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
 #include "nvs.h"
@@ -28,6 +29,14 @@ static int s_retry_num = 0;
 // 全局变量来保存WiFi信息和回调
 static wifi_manager_info_t g_wifi_info;
 static wifi_manager_event_cb_t g_event_cb = NULL;
+
+// 用于定期检查WiFi带宽的定时器
+static TimerHandle_t wifi_bandwidth_check_timer = NULL;
+static const int WIFI_BW_CHECK_INTERVAL_MS = 30000; // 30秒检查一次带宽
+
+// 函数前向声明
+static void start_wifi_bandwidth_check_timer(void);
+static void check_wifi_bandwidth_timer_cb(TimerHandle_t xTimer);
 
 #define WIFI_NVS_NAMESPACE "wifi_config"
 #define WIFI_NVS_KEY_SSID "ssid"
@@ -52,7 +61,7 @@ static int32_t wifi_list_size = 128;
 // 前向声明
 static bool load_wifi_config_from_nvs(char* ssid, size_t ssid_len, char* password,
                                       size_t password_len);
-static void save_wifi_config_to_nvs(const char* ssid, const char* password);
+static void __attribute__((unused)) save_wifi_config_to_nvs(const char* ssid, const char* password);
 static void save_wifi_list_to_nvs(void);
 static void load_wifi_list_from_nvs(void);
 static void add_wifi_to_list(const char* ssid, const char* password);
@@ -194,6 +203,9 @@ esp_err_t wifi_manager_start(void) {
 
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK;
 
+    // 设置WiFi带宽为40MHz，提高传输速率
+    ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40));
+    
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -203,6 +215,9 @@ esp_err_t wifi_manager_start(void) {
     if (power_ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set WiFi power: %s", esp_err_to_name(power_ret));
     }
+    
+    // 启动WiFi带宽检查定时器
+    start_wifi_bandwidth_check_timer();
 
     ESP_LOGI(TAG, "wifi_manager_start finished, connection is in progress...");
     return ESP_OK;
@@ -341,6 +356,10 @@ esp_err_t wifi_manager_connect_to_index(int32_t index) {
     wifi_config.sta.threshold.rssi = -127;
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    
+    // 确保使用40MHz带宽
+    esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40);
+    
     esp_err_t err = esp_wifi_connect();
     if (err == ESP_OK) {
         g_wifi_info.state = WIFI_STATE_CONNECTING;
@@ -351,7 +370,7 @@ esp_err_t wifi_manager_connect_to_index(int32_t index) {
     return err;
 }
 
-static void save_wifi_config_to_nvs(const char* ssid, const char* password) {
+static void __attribute__((unused)) save_wifi_config_to_nvs(const char* ssid, const char* password) {
     nvs_handle_t nvs_handle;
     esp_err_t err = nvs_open(WIFI_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
     if (err == ESP_OK) {
@@ -427,5 +446,79 @@ static void add_wifi_to_list(const char* ssid, const char* password) {
         ESP_LOGI(TAG, "WiFi added to list: %s", ssid);
     } else {
         ESP_LOGW(TAG, "WiFi list is full, cannot add: %s", ssid);
+    }
+}
+
+/**
+ * @brief 检查并确保WiFi使用40MHz带宽
+ * 
+ * 该函数作为定时器回调，定期检查并确保WiFi始终使用40MHz带宽
+ * 无论是STA模式还是AP模式
+ */
+static void check_wifi_bandwidth_timer_cb(TimerHandle_t xTimer) {
+    wifi_mode_t mode;
+    esp_err_t err = esp_wifi_get_mode(&mode);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get WiFi mode: %s", esp_err_to_name(err));
+        return;
+    }
+    
+    // 检查STA模式
+    if (mode == WIFI_MODE_STA || mode == WIFI_MODE_APSTA) {
+        wifi_bandwidth_t bw;
+        err = esp_wifi_get_bandwidth(WIFI_IF_STA, &bw);
+        if (err == ESP_OK && bw != WIFI_BW_HT40) {
+            ESP_LOGI(TAG, "STA模式带宽不是40MHz，正在设置为40MHz");
+            err = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "设置STA模式带宽失败: %s", esp_err_to_name(err));
+            } else {
+                ESP_LOGI(TAG, "成功设置STA模式带宽为40MHz");
+            }
+        }
+    }
+    
+    // 检查AP模式
+    if (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA) {
+        wifi_bandwidth_t bw;
+        err = esp_wifi_get_bandwidth(WIFI_IF_AP, &bw);
+        if (err == ESP_OK && bw != WIFI_BW_HT40) {
+            ESP_LOGI(TAG, "AP模式带宽不是40MHz，正在设置为40MHz");
+            err = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT40);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "设置AP模式带宽失败: %s", esp_err_to_name(err));
+            } else {
+                ESP_LOGI(TAG, "成功设置AP模式带宽为40MHz");
+            }
+        }
+    }
+}
+
+/**
+ * @brief 启动WiFi带宽检查定时器
+ */
+static void start_wifi_bandwidth_check_timer(void) {
+    // 如果定时器已存在，先删除
+    if (wifi_bandwidth_check_timer != NULL) {
+        xTimerDelete(wifi_bandwidth_check_timer, 0);
+    }
+    
+    // 创建定时器，每隔一段时间检查一次带宽
+    wifi_bandwidth_check_timer = xTimerCreate(
+        "wifi_bw_check",
+        pdMS_TO_TICKS(WIFI_BW_CHECK_INTERVAL_MS),
+        pdTRUE,  // 自动重载
+        NULL,
+        check_wifi_bandwidth_timer_cb
+    );
+    
+    if (wifi_bandwidth_check_timer != NULL) {
+        if (xTimerStart(wifi_bandwidth_check_timer, 0) != pdPASS) {
+            ESP_LOGE(TAG, "Failed to start WiFi bandwidth check timer");
+        } else {
+            ESP_LOGI(TAG, "WiFi bandwidth check timer started");
+        }
+    } else {
+        ESP_LOGE(TAG, "Failed to create WiFi bandwidth check timer");
     }
 }

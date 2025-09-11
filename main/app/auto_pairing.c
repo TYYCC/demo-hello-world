@@ -46,6 +46,7 @@ static lv_obj_t* g_loading_spinner = NULL;
 static lv_obj_t* g_countdown_label = NULL;
 static lv_timer_t* g_pairing_timer = NULL;
 static esp_timer_handle_t g_countdown_timer = NULL;
+static esp_timer_handle_t g_bandwidth_check_timer = NULL;
 static uint32_t g_remaining_time = 60;
 static esp_ip4_addr_t g_client_ip = {0};
 
@@ -71,7 +72,7 @@ static void start_ap_hotspot(void);
 static void stop_ap_hotspot(void);
 static void send_tcp_command(void);
 static bool is_device_connected(void);
-
+static void check_ap_bandwidth_cb(void* arg);
 
 /**
  * @brief 启动自动配对功能
@@ -307,6 +308,35 @@ static void pairing_window_close_cb(lv_timer_t* timer) {
 }
 
 /**
+ * @brief 带宽检查定时器回调
+ * 
+ * 定期检查AP模式的WiFi带宽，确保其始终为40MHz
+ */
+static void check_ap_bandwidth_cb(void* arg) {
+    wifi_mode_t mode;
+    esp_err_t err = esp_wifi_get_mode(&mode);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get WiFi mode: %s", esp_err_to_name(err));
+        return;
+    }
+    
+    // 只有当WiFi处于AP或APSTA模式时才检查AP带宽
+    if (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA) {
+        wifi_bandwidth_t bw;
+        err = esp_wifi_get_bandwidth(WIFI_IF_AP, &bw);
+        if (err == ESP_OK && bw != WIFI_BW_HT40) {
+            ESP_LOGI(TAG, "AP模式带宽不是40MHz，正在设置为40MHz");
+            err = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT40);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "设置AP模式带宽失败: %s", esp_err_to_name(err));
+            } else {
+                ESP_LOGI(TAG, "成功设置AP模式带宽为40MHz");
+            }
+        }
+    }
+}
+
+/**
  * @brief 启动AP热点
  */
 static void start_ap_hotspot(void) {
@@ -333,7 +363,28 @@ static void start_ap_hotspot(void) {
     // 设置WiFi模式为AP
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    
+    // 设置AP带宽为40MHz，提高传输速率
+    ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT40));
+    
+    // 设置WiFi发射功率为最大值
+    esp_wifi_set_max_tx_power(84); // 相当于20dBm，ESP32-S3的最大功率
+    
     ESP_ERROR_CHECK(esp_wifi_start());
+    
+    // 创建并启动带宽检查定时器，每10秒检查一次带宽
+    const esp_timer_create_args_t bandwidth_timer_args = {
+        .callback = check_ap_bandwidth_cb,
+        .name = "ap_bandwidth_check"
+    };
+    
+    if (g_bandwidth_check_timer != NULL) {
+        esp_timer_stop(g_bandwidth_check_timer);
+        esp_timer_delete(g_bandwidth_check_timer);
+    }
+    
+    esp_timer_create(&bandwidth_timer_args, &g_bandwidth_check_timer);
+    esp_timer_start_periodic(g_bandwidth_check_timer, 10000000); // 10秒间隔
 
     ESP_LOGI(TAG, "AP hotspot started: %s", ssid);
     if (ui_get_current_language() == LANG_CHINESE) {
@@ -348,6 +399,14 @@ static void start_ap_hotspot(void) {
  */
 static void stop_ap_hotspot(void) {
     ESP_LOGI(TAG, "Stopping AP hotspot");
+    
+    // 停止带宽检查定时器
+    if (g_bandwidth_check_timer) {
+        esp_timer_stop(g_bandwidth_check_timer);
+        esp_timer_delete(g_bandwidth_check_timer);
+        g_bandwidth_check_timer = NULL;
+    }
+    
     // 注销事件处理程序
     ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, pairing_event_handler));
     ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, pairing_event_handler));
