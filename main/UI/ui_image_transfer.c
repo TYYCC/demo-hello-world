@@ -184,8 +184,8 @@ void ui_image_transfer_create(lv_obj_t* parent) {
 
     // Create a timer to update status labels like FPS, IP, etc.
     s_status_update_timer = lv_timer_create(status_update_timer_callback, 500, NULL);
-    // Create a timer for rendering images (lower frequency to prevent flickering)
-    s_image_render_timer = lv_timer_create(image_render_timer_callback, 33, NULL); // ~30 FPS
+    // Create a timer for rendering images (higher frequency to keep up with decoder)
+    s_image_render_timer = lv_timer_create(image_render_timer_callback, 16, NULL); // ~60 FPS
 }
 
 void ui_image_transfer_destroy(void) {
@@ -363,19 +363,28 @@ static void image_render_timer_callback(lv_timer_t* timer) {
 
     // 使用新的模块化架构获取帧数据
 
-    // 降低帧渲染频率，避免过度刷新
-    static uint32_t last_render_time = 0;
-    uint32_t current_time = lv_tick_get();
-
-    // 最小帧间隔30ms (约33fps)，避免过度刷新导致的闪烁
-    if (current_time - last_render_time < 30 && last_render_time != 0) {
-        return;
-    }
+    // 移除帧间隔限制，尽可能快地处理队列中的帧
 
     // 从 DisplayQueue 获取帧（JPEG/LZ4 均推送为 RGB565LE）
+    // 批量处理队列中的帧，只显示最新的帧以减少延迟
     frame_msg_t msg;
     QueueHandle_t display_queue = image_transfer_app_get_display_queue();
-    if (!s_is_rendering && display_queue && display_queue_dequeue(display_queue, &msg, 0)) {
+    bool has_frame = false;
+    
+    if (!s_is_rendering && display_queue) {
+        // 快速消费队列中的所有帧，只保留最新的一帧
+        frame_msg_t temp_msg;
+        while (display_queue_dequeue(display_queue, &temp_msg, 0)) {
+            if (has_frame) {
+                // 释放之前的帧
+                display_queue_free_frame(&msg);
+            }
+            msg = temp_msg;
+            has_frame = true;
+        }
+    }
+    
+    if (has_frame) {
         if (msg.frame_buffer && s_canvas && s_canvas_buffer) {
             s_is_rendering = true;
             uint16_t* src_ptr = (uint16_t*)msg.frame_buffer;
@@ -391,7 +400,7 @@ static void image_render_timer_callback(lv_timer_t* timer) {
                 memcpy(&dst_ptr[y * s_canvas_width], &src_ptr[y * frame_width], line_bytes);
             }
             lv_obj_invalidate(s_canvas);
-            lv_refr_now(NULL);
+            // 移除强制刷新，让LVGL自然调度刷新以提高性能
             s_is_rendering = false;
         }
         // 释放帧缓冲
