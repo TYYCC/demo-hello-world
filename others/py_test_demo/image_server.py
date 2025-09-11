@@ -10,8 +10,8 @@ import lz4.frame
 
 ESP32_IP = '192.168.76.247'  # 修改为你的 ESP32 IP 地址
 ESP32_PORT = 6556           # ESP32 监听的端口
-MAX_IMAGE_SIZE_BYTES = 90 * 1024  # 90KB single buffer
-TARGET_RESOLUTION = (240, 180)
+MAX_IMAGE_SIZE_BYTES = 128 * 1024  # 90KB single buffer
+TARGET_RESOLUTION = (240, 200)  # 减小尺寸以确保JPEG质量
 
 def select_video_file():
     """
@@ -41,21 +41,27 @@ def resize_with_aspect_ratio(image, target_resolution):
 
 def encode_frame(frame, encoding):
     if encoding == 'jpeg':
-        jpeg_quality = 90  # 合理的起始质量
+        # 提高JPEG质量，减少压缩失真
+        jpeg_quality = 95  # 更高的起始质量
         while True:
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality]
+            encode_param = [
+                int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality,
+                int(cv2.IMWRITE_JPEG_OPTIMIZE), 1,  # 启用优化
+                int(cv2.IMWRITE_JPEG_PROGRESSIVE), 0  # 禁用渐进式
+            ]
             result, encimg = cv2.imencode('.jpg', frame, encode_param)
             if not result:
                 print("Error: Failed to encode frame.")
                 return None, None
 
             if len(encimg) <= MAX_IMAGE_SIZE_BYTES:
+                print(f"JPEG encoded: {len(encimg)} bytes, quality: {jpeg_quality}")
                 return encimg.tobytes(), jpeg_quality
 
-            jpeg_quality -= 5  # 逐步降低质量
-            if jpeg_quality < 40:  # 质量下限
-                print("Warning: Cannot compress image under 90KB")
-                return None, None
+            jpeg_quality -= 3  # 更小的质量步长
+            if jpeg_quality < 60:  # 提高质量下限
+                print(f"Warning: Cannot compress image under 90KB, final quality: {jpeg_quality}")
+                return encimg.tobytes(), jpeg_quality
     elif encoding == 'lz4':
         # 先转换为RGB565格式，然后再压缩（按BGR通道构建并进行字节序交换以匹配LVGL配置）
         if len(frame.shape) == 3:
