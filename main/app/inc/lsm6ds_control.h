@@ -1,11 +1,12 @@
 #ifndef LSM6DS_CONTROL_H
 #define LSM6DS_CONTROL_H
-#include "lsm6ds3.h"
 #include "esp_err.h"
+#include "lsm6ds3.h"
 
 typedef struct {
     float pitch;
     float roll;
+    float yaw;
 } attitude_data_t;
 
 extern TaskHandle_t s_lsm6ds3_control_task;

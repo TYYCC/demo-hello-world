@@ -9,16 +9,23 @@
 #include "bsp_i2c.h" // 包含新的I2C头文件
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
 
+// Fusion AHRS
+#include "FusionAhrs.h"
+#include "FusionMath.h"
 
 // ========================================
 // 私有变量和常量
 // ========================================
 static const char* TAG = "LSM6DS3";
 static lsm6ds3_handle_t g_lsm6ds3_handle = {0};
+static FusionAhrs s_ahrs;          // Fusion AHRS 状态
+static bool s_ahrs_inited = false; // AHRS 是否已初始化
+static int64_t s_last_time_us = 0; // 上次更新时间 (us)
 
 // I2C设备地址
 #define LSM6DS3_I2C_ADDR 0x6A     // 默认I2C地址 (SDO=GND)
@@ -59,8 +66,8 @@ static esp_err_t lsm6ds3_i2c_init(void) {
         .device_address = LSM6DS3_I2C_ADDR_ALT,
         .scl_speed_hz = BSP_I2C_FREQ_HZ,
     };
-    esp_err_t ret =
-        i2c_master_bus_add_device(g_lsm6ds3_handle.i2c_bus_handle, &dev_cfg, &g_lsm6ds3_handle.i2c_dev_handle);
+    esp_err_t ret = i2c_master_bus_add_device(g_lsm6ds3_handle.i2c_bus_handle, &dev_cfg,
+                                              &g_lsm6ds3_handle.i2c_dev_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2C master bus add device failed: %s", esp_err_to_name(ret));
         return ret;
@@ -75,8 +82,8 @@ static esp_err_t lsm6ds3_i2c_init(void) {
  * @brief I2C读取寄存器
  */
 static esp_err_t lsm6ds3_read_reg_i2c(uint8_t reg, uint8_t* data, size_t len) {
-    esp_err_t ret =
-        i2c_master_transmit_receive(g_lsm6ds3_handle.i2c_dev_handle, &reg, 1, data, len, pdMS_TO_TICKS(100));
+    esp_err_t ret = i2c_master_transmit_receive(g_lsm6ds3_handle.i2c_dev_handle, &reg, 1, data, len,
+                                                pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2C read failed: %s", esp_err_to_name(ret));
     }
@@ -90,7 +97,8 @@ static esp_err_t lsm6ds3_write_reg_i2c(uint8_t reg, uint8_t data) {
     esp_err_t ret;
     uint8_t write_buf[2] = {reg, data};
 
-    ret = i2c_master_transmit(g_lsm6ds3_handle.i2c_dev_handle, write_buf, sizeof(write_buf), pdMS_TO_TICKS(100));
+    ret = i2c_master_transmit(g_lsm6ds3_handle.i2c_dev_handle, write_buf, sizeof(write_buf),
+                              pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2C write failed: %s", esp_err_to_name(ret));
     }
@@ -279,7 +287,9 @@ static float lsm6ds3_convert_gyro_raw_to_dps(int16_t raw, uint8_t fs) {
 /**
  * @brief 将温度原始数据转换为摄氏度
  */
-static float lsm6ds3_convert_temp_raw_to_celsius(int16_t raw) { return (float)raw / 256.0f + 25.0f; }
+static float lsm6ds3_convert_temp_raw_to_celsius(int16_t raw) {
+    return (float)raw / 256.0f + 25.0f;
+}
 
 // ========================================
 // 公共函数实现
@@ -317,7 +327,8 @@ esp_err_t lsm6ds3_init(void) {
     }
 
     if (who_am_i != LSM6DS3_WHO_AM_I_VALUE) {
-        ESP_LOGE(TAG, "WHO_AM_I mismatch: expected 0x%02X, got 0x%02X", LSM6DS3_WHO_AM_I_VALUE, who_am_i);
+        ESP_LOGE(TAG, "WHO_AM_I mismatch: expected 0x%02X, got 0x%02X", LSM6DS3_WHO_AM_I_VALUE,
+                 who_am_i);
         return ESP_ERR_NOT_FOUND;
     }
 
@@ -347,6 +358,11 @@ esp_err_t lsm6ds3_init(void) {
 
     g_lsm6ds3_handle.is_initialized = true;
     ESP_LOGI(TAG, "LSM6DS3 initialized successfully");
+
+    // 初始化 Fusion AHRS
+    FusionAhrsInitialise(&s_ahrs);
+    s_ahrs_inited = true;
+    s_last_time_us = esp_timer_get_time();
 
     return ESP_OK;
 }
@@ -597,6 +613,52 @@ esp_err_t lsm6ds3_reset(void) {
     }
 
     return ret;
+}
+
+/**
+ * @brief 使用 Fusion AHRS 解算并返回欧拉角 (无磁力计)
+ */
+esp_err_t lsm6ds3_read_euler(lsm6ds3_euler_t* euler) {
+    if (!g_lsm6ds3_handle.is_initialized || !euler) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // 若 AHRS 未初始化则初始化一次
+    if (!s_ahrs_inited) {
+        FusionAhrsInitialise(&s_ahrs);
+        s_ahrs_inited = true;
+        s_last_time_us = esp_timer_get_time();
+    }
+
+    // 读取一次传感器
+    lsm6ds3_data_t data = {0};
+    esp_err_t ret = lsm6ds3_read_all(&data);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    // 计算 deltaTime (s)
+    const int64_t now_us = esp_timer_get_time();
+    float deltaTime = (float)(now_us - s_last_time_us) / 1000000.0f;
+    if (deltaTime <= 0.0f || deltaTime > 1.0f) { // 限幅，防止异常间隔
+        deltaTime = 0.01f;                       // 10ms 作为回退
+    }
+    s_last_time_us = now_us;
+
+    // 封装为 Fusion 向量（单位：陀螺仪 dps，加速度 g）
+    const FusionVector gyroscope = {.axis = {data.gyro.x, data.gyro.y, data.gyro.z}};
+    const FusionVector accelerometer = {.axis = {data.accel.x, data.accel.y, data.accel.z}};
+
+    // 无磁力计更新
+    FusionAhrsUpdateNoMagnetometer(&s_ahrs, gyroscope, accelerometer, deltaTime);
+
+    // 提取欧拉角（单位：度）
+    const FusionEuler fe = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&s_ahrs));
+    euler->roll = fe.angle.roll;
+    euler->pitch = fe.angle.pitch;
+    euler->yaw = fe.angle.yaw; // 无磁力计时航向会缓慢漂移
+
+    return ESP_OK;
 }
 
 /**
