@@ -10,7 +10,7 @@ extern "C" {
 
 #define BSP_I2C_NUM I2C_NUM_0
 #define BSP_I2C_SCL_PIN 20
-#define BSP_I2C_SDA_PIN 21
+#define BSP_I2C_SDA_PIN 19
 #define BSP_I2C_FREQ_HZ 400000
 
 esp_err_t bsp_i2c_init(void);

@@ -21,6 +21,7 @@
 #include "battery_monitor.h"
 #include "bsp_i2c.h"
 #include "calibration_manager.h"
+#include "gt911.h"
 #include "ft6336g.h"
 #include "lsm6ds3.h"
 #include "lv_port_indev.h" // 包含此头文件以获取宏定义
@@ -141,15 +142,13 @@ esp_err_t components_init(void) {
         ESP_LOGI(TAG, "LSM6DS3 initialized successfully");
     }
 
-#if USE_FT6336G_TOUCH
-    // 初始化FT6336G触摸控制器
-    ret = ft6336g_init();
+    // 初始化GT911触摸控制器
+    ret = gt911_init();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "FT6336G initialization failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "GT911 initialization failed: %s", esp_err_to_name(ret));
     } else {
-        ESP_LOGI(TAG, "FT6336G initialized successfully");
+        ESP_LOGI(TAG, "GT911 initialized successfully");
     }
-#endif
 
     // 初始化UI状态管理器
     ui_state_manager_init();

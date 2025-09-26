@@ -9,11 +9,12 @@ else()
     set(PERIPHERALS_SRCS
         "src/st7789.c"
         "src/st7789_esp_lcd.c"
-        "src/xpt2046.c" # 根据需要选择一个触摸驱动
+        "src/ft6336g.c" # 根据需要选择一个触摸驱动
         "src/ws2812.c"
         "src/lsm6ds3.c"
         "src/bsp_i2c.c"
         # "src/ft6336g.c" # 根据需要选择一个触摸驱动
+        "src/gt911.c"
         "src/joystick_adc.c"
         "src/key.c"
         "src/wifi_manager.c"

@@ -37,7 +37,6 @@ void lvgl_main_task(void* pvParameters) {
 
     // 在屏幕硬件和设置都初始化完成后，应用背光
     st7789_set_backlight(settings_get_backlight());
-
     // 初始化主题管理器
     theme_manager_init();
 
