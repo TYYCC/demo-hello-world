@@ -18,7 +18,6 @@ extern "C" {
 #include "driver/i2c_master.h"
 #include "driver/spi_master.h"
 
-
 // ========================================
 // 硬件连接配置 (可根据实际连接修改)
 // ========================================
@@ -162,6 +161,15 @@ typedef struct {
 } lsm6ds3_data_t;
 
 /**
+ * @brief 欧拉角 (单位: 度)
+ */
+typedef struct {
+    float roll;  // 横滚
+    float pitch; // 俯仰
+    float yaw;   // 航向
+} lsm6ds3_euler_t;
+
+/**
  * @brief 通信模式
  */
 typedef enum {
@@ -247,6 +255,14 @@ esp_err_t lsm6ds3_read_temp(lsm6ds3_temp_data_t* temp_data);
  * @return ESP_OK 成功, 其他值表示错误
  */
 esp_err_t lsm6ds3_read_all(lsm6ds3_data_t* data);
+
+/**
+ * @brief 使用 Fusion AHRS 解算并返回欧拉角 (无磁力计)
+ *        内部会读取一次加速度计和陀螺仪，并根据两次调用间隔动态计算 deltaTime。
+ * @param euler 欧拉角输出指针 (单位: 度)
+ * @return ESP_OK 成功, 其他值表示错误
+ */
+esp_err_t lsm6ds3_read_euler(lsm6ds3_euler_t* euler);
 
 /**
  * @brief 检查传感器是否就绪
