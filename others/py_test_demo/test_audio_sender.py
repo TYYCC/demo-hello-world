@@ -10,7 +10,7 @@ import os
 import tkinter as tk
 from tkinter import filedialog, simpledialog
 
-ESP32_IP = "192.168.76.247"
+ESP32_IP = "192.168.233.247"
 
 # 采样率（与ESP32一致）
 SAMPLE_RATE = 44100

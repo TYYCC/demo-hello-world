@@ -8,7 +8,7 @@ from tkinter import Tk, filedialog
 import argparse
 import lz4.frame
 
-ESP32_IP = '192.168.76.247'  # 修改为你的 ESP32 IP 地址
+ESP32_IP = '192.168.233.247'  # 修改为你的 ESP32 IP 地址
 ESP32_PORT = 6556           # ESP32 监听的端口
 MAX_IMAGE_SIZE_BYTES = 128 * 1024  # 90KB single buffer
 TARGET_RESOLUTION = (240, 200)  # 减小尺寸以确保JPEG质量
