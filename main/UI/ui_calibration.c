@@ -659,10 +659,11 @@ static void ui_update_timer_cb(lv_timer_t* timer) {
             while (xQueueReceive(test_queue, &msg, 0) == pdPASS) {
                 if (msg.type == MSG_UPDATE_EULER) {
                     // 【关键】使用后台 Fusion AHRS 的欧拉角，直接设置（无积分漂移）
-                    // 后台任务以 10Hz 更新，已经融合了加速度计和陀螺仪
-                    test_data->angle_x = msg.data.euler.roll * (M_PI / 180.0f);   // Roll
-                    test_data->angle_y = msg.data.euler.pitch * (M_PI / 180.0f);  // Pitch
-                    test_data->angle_z = msg.data.euler.yaw * (M_PI / 180.0f);    // Yaw
+                    // 【坐标轴映射修正】根据实际硬件安装方向调整显示
+                    // 交换 Roll 和 Pitch，Yaw 反向
+                    test_data->angle_x = msg.data.euler.pitch * (M_PI / 180.0f);   // X 轴显示 Pitch
+                    test_data->angle_y = msg.data.euler.roll * (M_PI / 180.0f);    // Y 轴显示 Roll
+                    test_data->angle_z = -msg.data.euler.yaw * (M_PI / 180.0f);    // Z 轴显示 -Yaw（反向）
 
                     draw_cube_on_canvas(test_data->canvas, test_data->initial_vertices, 
                                         test_data->angle_x, test_data->angle_y, test_data->angle_z);
