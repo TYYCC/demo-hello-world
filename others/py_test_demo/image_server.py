@@ -8,7 +8,7 @@ from tkinter import Tk, filedialog
 import argparse
 import lz4.frame
 
-ESP32_IP = '192.168.233.247'  # 修改为你的 ESP32 IP 地址
+ESP32_IP = '192.168.123.159'  # 修改为你的 ESP32 IP 地址
 ESP32_PORT = 6556           # ESP32 监听的端口
 MAX_IMAGE_SIZE_BYTES = 128 * 1024  # 90KB single buffer
 TARGET_RESOLUTION = (240, 200)  # 减小尺寸以确保JPEG质量
@@ -228,7 +228,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Send video stream to ESP32 with specified encoding.")
     parser.add_argument('--encoding', type=str, default='jpeg', choices=['jpeg', 'lz4', 'raw'],
                         help='Encoding type for the video stream (jpeg, lz4, raw).')
+    parser.add_argument('--source', type=str, default=None,
+                        help='Video source: file path or camera index (e.g., 0). If provided, skips interactive prompt.')
     args = parser.parse_args()
+
+    # If source is provided via CLI, use it directly and skip interactive selection
+    if args.source is not None:
+        src = args.source
+        video_source = int(src) if src.isdigit() else src
+        send_video_to_esp32(video_source, args.encoding)
+        sys.exit(0)
 
     print("Select video source:")
     print("1: Live Camera")

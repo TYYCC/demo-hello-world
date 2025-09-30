@@ -20,23 +20,21 @@ typedef enum {
     KEY_DOWN = 0x02,
     KEY_LEFT = 0x04,
     KEY_RIGHT = 0x08,
-    KEY_CENTER = 0x10,
-    KEY_VOL_UP = 0x20,
-    KEY_VOL_DOWN = 0x40,
+    KEY_VOL_UP = 0x10,
+    KEY_VOL_DOWN = 0x20,
 
     KEY_UP_LONG = 0x0100,
     KEY_DOWN_LONG = 0x0200,
     KEY_LEFT_LONG = 0x0400,
     KEY_RIGHT_LONG = 0x0800,
-    KEY_CENTER_LONG = 0x1000,
-    KEY_VOL_UP_LONG = 0x2000,
-    KEY_VOL_DOWN_LONG = 0x4000
+    KEY_VOL_UP_LONG = 0x1000,
+    KEY_VOL_DOWN_LONG = 0x2000
 } key_dir_t;
 
 /**
  * @brief 初始化按键接口（初始化摇杆ADC）
  */
-void key_init(void);
+esp_err_t key_init(void);
 
 /**
  * @brief 扫描摇杆并返回当前按键状态，按键状态可组合多方向
