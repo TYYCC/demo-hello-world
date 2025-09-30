@@ -14,6 +14,7 @@
 #include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
+#include "calibration_manager.h"  // 需要应用校准数据
 
 
 static char* TAG = "LSM6DS3_CTRL";
@@ -29,18 +30,17 @@ TaskHandle_t s_lsm6ds3_control_task = NULL;
 
 static void lsm6ds3_control_task(void* pvParameters) {
     esp_err_t ret;
-    lsm6ds3_data_t sensor_data;
 
-    // 配置加速度计: 104Hz, ±2g
-    ret = lsm6ds3_config_accel(LSM6DS3_ODR_104_HZ, LSM6DS3_ACCEL_FS_2G);
+    // 配置加速度计: 416Hz, ±2g（提高采样率）
+    ret = lsm6ds3_config_accel(LSM6DS3_ODR_416_HZ, LSM6DS3_ACCEL_FS_2G);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to configure accelerometer");
         lsm6ds3_deinit();
         vTaskDelete(NULL);
     }
 
-    // 配置陀螺仪: 104Hz, ±250dps
-    ret = lsm6ds3_config_gyro(LSM6DS3_ODR_104_HZ, LSM6DS3_GYRO_FS_250DPS);
+    // 配置陀螺仪: 416Hz, ±250dps（提高采样率）
+    ret = lsm6ds3_config_gyro(LSM6DS3_ODR_416_HZ, LSM6DS3_GYRO_FS_250DPS);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to configure gyroscope");
         lsm6ds3_deinit();
@@ -51,10 +51,17 @@ static void lsm6ds3_control_task(void* pvParameters) {
     lsm6ds3_accel_enable(true);
     lsm6ds3_gyro_enable(true);
 
-    // 可选：执行零偏校准（当前略过）
+    ESP_LOGI(TAG, "LSM6DS3 control task started, using Fusion AHRS");
+    ESP_LOGI(TAG, "Waiting for initial calibration to settle...");
+    
+    // 等待 2 秒让传感器稳定
+    vTaskDelay(pdMS_TO_TICKS(2000));
 
     while (1) {
-
+        // 【关键修改】使用 lsm6ds3_read_euler()，它内部已经包含：
+        // 1. 读取原始数据
+        // 2. Fusion AHRS 处理
+        // 3. FusionOffset 零漂补偿
         lsm6ds3_euler_t e = {0};
         ret = lsm6ds3_read_euler(&e);
         if (ret == ESP_OK) {
@@ -64,9 +71,12 @@ static void lsm6ds3_control_task(void* pvParameters) {
                 yaw = e.yaw;
                 xSemaphoreGive(attitude_mutex);
             }
+        } else {
+            ESP_LOGW(TAG, "Failed to read euler angles");
         }
-        // 10Hz 更新频率
-        vTaskDelay(pdMS_TO_TICKS(100));
+        
+        // 50Hz 更新频率（从 10Hz 提高到 50Hz，让 Fusion 更稳定）
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 

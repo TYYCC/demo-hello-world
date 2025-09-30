@@ -17,6 +17,7 @@
 #include "calibration_manager.h"
 #include "joystick_adc.h"
 #include "lsm6ds3.h"
+#include "lsm6ds_control.h"  // 后台 Fusion AHRS 任务
 #include "my_font.h"
 #include "theme_manager.h"
 #include "ui.h"
@@ -62,7 +63,8 @@ static QueueHandle_t g_test_queue = NULL;
 // 消息类型
 typedef enum { 
     MSG_UPDATE_JOYSTICK, 
-    MSG_UPDATE_GYROSCOPE,      // 陀螺仪角速度数据
+    MSG_UPDATE_GYROSCOPE,      // 陀螺仪角速度数据（用于数值显示）
+    MSG_UPDATE_EULER,          // 后台 Fusion AHRS 的欧拉角（用于立方体显示）
     MSG_UPDATE_ACCELEROMETER, 
     MSG_STOP_TEST 
 } test_msg_type_t;
@@ -93,8 +95,11 @@ typedef struct {
             int16_t joy1_x, joy1_y;
         } joystick;
         struct {
-            float x, y, z;
+            float x, y, z;  // 角速度 (dps)
         } gyro;
+        struct {
+            float roll, pitch, yaw;  // 欧拉角（度）- 从后台 Fusion AHRS 读取
+        } euler;
         struct {
             float x, y, z;
         } accel;
@@ -650,25 +655,20 @@ static void ui_update_timer_cb(lv_timer_t* timer) {
     case CALIBRATION_STATE_GYROSCOPE_TEST: {
         gyro_test_data_t* test_data = (gyro_test_data_t*)lv_obj_get_user_data(g_content_container);
         if (test_data) {
-            if (xQueueReceive(test_queue, &msg, 0) == pdPASS) {
-                if (msg.type == MSG_UPDATE_GYROSCOPE) {
-                    // 【改进的积分算法】使用校准后的数据，减少漂移
-                    float dt = 0.02f; // 20ms 更新周期 (50Hz)
-                    
-                    // 死区处理：角速度很小时认为静止，避免累积噪声
-                    float gyro_x = (fabsf(msg.data.gyro.x) > 1.0f) ? msg.data.gyro.x : 0.0f;
-                    float gyro_y = (fabsf(msg.data.gyro.y) > 1.0f) ? msg.data.gyro.y : 0.0f;
-                    float gyro_z = (fabsf(msg.data.gyro.z) > 1.0f) ? msg.data.gyro.z : 0.0f;
-                    
-                    // 角速度积分（交换X/Y修正轴向）
-                    test_data->angle_x += gyro_y * dt * (M_PI / 180.0f);  // Roll 用 Y 轴
-                    test_data->angle_y += gyro_x * dt * (M_PI / 180.0f);  // Pitch 用 X 轴
-                    test_data->angle_z += gyro_z * dt * (M_PI / 180.0f);  // Yaw
+            // 处理所有队列消息
+            while (xQueueReceive(test_queue, &msg, 0) == pdPASS) {
+                if (msg.type == MSG_UPDATE_EULER) {
+                    // 【关键】使用后台 Fusion AHRS 的欧拉角，直接设置（无积分漂移）
+                    // 后台任务以 10Hz 更新，已经融合了加速度计和陀螺仪
+                    test_data->angle_x = msg.data.euler.roll * (M_PI / 180.0f);   // Roll
+                    test_data->angle_y = msg.data.euler.pitch * (M_PI / 180.0f);  // Pitch
+                    test_data->angle_z = msg.data.euler.yaw * (M_PI / 180.0f);    // Yaw
 
                     draw_cube_on_canvas(test_data->canvas, test_data->initial_vertices, 
                                         test_data->angle_x, test_data->angle_y, test_data->angle_z);
-                    
-                    // 更新数值显示
+                }
+                else if (msg.type == MSG_UPDATE_GYROSCOPE) {
+                    // 更新原始角速度数值显示
                     lv_label_set_text_fmt(test_data->value_label, "X: %.2f, Y: %.2f, Z: %.2f", 
                                           msg.data.gyro.x, msg.data.gyro.y, msg.data.gyro.z);
                 }
@@ -735,18 +735,29 @@ static void test_task(void* pvParameter) {
                 break;
             }
             case CALIBRATION_STATE_GYROSCOPE_TEST: {
-                // 读取陀螺仪原始数据（避免与后台 Fusion AHRS 任务冲突）
+                // 【方案：使用后台 Fusion AHRS 的结果】
+                // 后台任务已经在运行 Fusion AHRS，我们只读取结果，避免冲突
+                attitude_data_t attitude;
+                lsm6ds_control_get_attitude(&attitude);  // 带互斥锁保护
+                
+                test_msg_t euler_msg;
+                euler_msg.type = MSG_UPDATE_EULER;
+                euler_msg.data.euler.roll = attitude.roll;
+                euler_msg.data.euler.pitch = attitude.pitch;
+                euler_msg.data.euler.yaw = attitude.yaw;
+                xQueueSend(g_test_queue, &euler_msg, 0);
+                
+                // 同时读取原始角速度用于数值显示
                 lsm6ds3_data_t imu_data;
                 if (lsm6ds3_read_all(&imu_data) == ESP_OK) {
-                    // 【关键】应用用户校准的偏置
                     apply_gyroscope_calibration(&imu_data.gyro.x, &imu_data.gyro.y, &imu_data.gyro.z);
                     
-                    test_msg_t update_msg;
-                    update_msg.type = MSG_UPDATE_GYROSCOPE;
-                    update_msg.data.gyro.x = imu_data.gyro.x;
-                    update_msg.data.gyro.y = imu_data.gyro.y;
-                    update_msg.data.gyro.z = imu_data.gyro.z;
-                    xQueueSend(g_test_queue, &update_msg, 0);
+                    test_msg_t gyro_msg;
+                    gyro_msg.type = MSG_UPDATE_GYROSCOPE;
+                    gyro_msg.data.gyro.x = imu_data.gyro.x;
+                    gyro_msg.data.gyro.y = imu_data.gyro.y;
+                    gyro_msg.data.gyro.z = imu_data.gyro.z;
+                    xQueueSend(g_test_queue, &gyro_msg, 0);
                 }
                 break;
             }

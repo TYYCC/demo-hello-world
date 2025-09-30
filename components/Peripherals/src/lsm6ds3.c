@@ -382,16 +382,16 @@ esp_err_t lsm6ds3_init(void) {
     // 配置 AHRS 参数以提高精度和减少漂移
     const FusionAhrsSettings settings = {
         .convention = FusionConventionNwu,           // 坐标系：北-西-上
-        .gain = 0.5f,                                 // 增益：平衡陀螺仪和加速度计 (0.5 是适中值)
+        .gain = 1.0f,                                 // 增益：提高到 1.0，更信任加速度计（减少漂移）
         .gyroscopeRange = 250.0f,                     // 陀螺仪量程 (dps)
-        .accelerationRejection = 10.0f,               // 加速度拒绝阈值 (g)
+        .accelerationRejection = 20.0f,               // 提高到 20g，更容忍快速运动
         .magneticRejection = 0.0f,                    // 磁力拒绝（无磁力计时设为0）
-        .recoveryTriggerPeriod = 5 * 416,             // 恢复触发周期 (5秒 @ 416Hz)
+        .recoveryTriggerPeriod = 5 * 50,              // 5秒 @ 50Hz（实际更新频率）
     };
     FusionAhrsSetSettings(&s_ahrs, &settings);
     
     // 初始化零漂补偿算法（这是减少零漂的关键！）
-    FusionOffsetInitialise(&s_offset, 416);  // 采样率 416Hz（与传感器 ODR 匹配）
+    FusionOffsetInitialise(&s_offset, 50);  // 实际采样率 50Hz（lsm6ds_control 以 50Hz 调用）
     
     s_ahrs_inited = true;
     s_last_time_us = esp_timer_get_time();
@@ -666,14 +666,14 @@ esp_err_t lsm6ds3_read_euler(lsm6ds3_euler_t* euler) {
         FusionAhrsInitialise(&s_ahrs);
         const FusionAhrsSettings settings = {
             .convention = FusionConventionNwu,
-            .gain = 0.5f,
+            .gain = 1.0f,
             .gyroscopeRange = 250.0f,
-            .accelerationRejection = 10.0f,
+            .accelerationRejection = 20.0f,
             .magneticRejection = 0.0f,
-            .recoveryTriggerPeriod = 5 * 416,
+            .recoveryTriggerPeriod = 5 * 50,
         };
         FusionAhrsSetSettings(&s_ahrs, &settings);
-        FusionOffsetInitialise(&s_offset, 416);
+        FusionOffsetInitialise(&s_offset, 50);
         s_ahrs_inited = true;
         s_last_time_us = esp_timer_get_time();
     }
@@ -689,9 +689,17 @@ esp_err_t lsm6ds3_read_euler(lsm6ds3_euler_t* euler) {
     const int64_t now_us = esp_timer_get_time();
     float deltaTime = (float)(now_us - s_last_time_us) / 1000000.0f;
     if (deltaTime <= 0.0f || deltaTime > 1.0f) { // 限幅，防止异常间隔
-        deltaTime = 0.01f;                       // 10ms 作为回退
+        deltaTime = 0.02f;                       // 20ms 作为回退（50Hz）
     }
     s_last_time_us = now_us;
+
+    // 【重要】应用用户校准（如果已校准）
+    // 注意：这些函数内部会检查是否已校准，未校准时不修改数据
+    extern esp_err_t apply_gyroscope_calibration(float *gyro_x, float *gyro_y, float *gyro_z);
+    extern esp_err_t apply_accelerometer_calibration(float *accel_x, float *accel_y, float *accel_z);
+    
+    apply_gyroscope_calibration(&data.gyro.x, &data.gyro.y, &data.gyro.z);
+    apply_accelerometer_calibration(&data.accel.x, &data.accel.y, &data.accel.z);
 
     // 封装为 Fusion 向量（单位：陀螺仪 dps，加速度 g）
     FusionVector gyroscope = {.axis = {data.gyro.x, data.gyro.y, data.gyro.z}};
