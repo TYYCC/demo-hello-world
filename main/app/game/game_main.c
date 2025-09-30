@@ -31,6 +31,15 @@ static void snake_game_cb(lv_event_t* e) {
     }
 }
 
+// 启动打砖块的回调
+static void brickbreaker_game_cb(lv_event_t* e) {
+    lv_obj_t* screen = lv_scr_act();
+    if (screen) {
+        lv_obj_clean(screen);
+        ui_brickbreaker_create(screen);
+    }
+}
+
 // --- 游戏菜单创建 ---
 
 void ui_game_menu_create(lv_obj_t* parent) {
@@ -70,4 +79,8 @@ void ui_game_menu_create(lv_obj_t* parent) {
     // 添加贪吃蛇按钮
     lv_obj_t* snake_btn = lv_list_add_btn(list, LV_SYMBOL_PLAY, "Snake");
     lv_obj_add_event_cb(snake_btn, snake_game_cb, LV_EVENT_CLICKED, NULL);
+
+    // 添加打砖块按钮
+    lv_obj_t* brickbreaker_btn = lv_list_add_btn(list, LV_SYMBOL_PLAY, "Brick Breaker");
+    lv_obj_add_event_cb(brickbreaker_btn, brickbreaker_game_cb, LV_EVENT_CLICKED, NULL);
 }
