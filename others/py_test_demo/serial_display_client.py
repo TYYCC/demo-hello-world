@@ -136,7 +136,7 @@ class SerialDisplayClient:
 
 def main():
     parser = argparse.ArgumentParser(description='串口显示客户端程序')
-    parser.add_argument('host', help='ESP32的IP地址')
+    parser.add_argument('host', help='ESP32的IP地址',default="192.168.233.247")
     parser.add_argument('port', type=int, help='端口号', default=8080, nargs='?')
     parser.add_argument('-i', '--interactive', action='store_true', help='交互模式')
     parser.add_argument('-d', '--demo', action='store_true', help='演示模式')
