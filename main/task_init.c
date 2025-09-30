@@ -14,6 +14,7 @@
 #include "serial_display.h"
 #include "task_init.h"
 #include "wifi_manager.h"
+#include "key.h"
 
 // 声明音频接收函数
 extern esp_err_t audio_receiver_start(void);
@@ -45,11 +46,18 @@ static void joystick_adc_task(void* pvParameters) {
         return;
     }
 
+    if (key_init() != ESP_OK) {
+        ESP_LOGE(TAG, "key init failed");
+        vTaskDelete(NULL);
+        return;
+    }
+
     const TickType_t period_ticks = pdMS_TO_TICKS(20); // 50Hz = 20ms，降低频率避免看门狗超时
 
     joystick_data_t data;
 
     while (1) {
+        key_scan();
         joystick_adc_read(&data);
         vTaskDelay(period_ticks);
     }
@@ -439,11 +447,11 @@ esp_err_t init_all_tasks(void) {
     }
 
     // 初始化电池监测任务
-    ret = init_battery_monitor_task();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to init battery monitor task");
-        return ret;
-    }
+    // ret = init_battery_monitor_task();
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "Failed to init battery monitor task");
+    //     return ret;
+    // }
 
     // 初始化WiFi管理任务
     ret = init_wifi_manager_task();
@@ -466,11 +474,11 @@ esp_err_t init_all_tasks(void) {
     }
 
     // 初始化音频接收任务（后台服务）
-    ret = init_audio_receiver_task();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to init audio receiver task");
-        return ret;
-    }
+    // ret = init_audio_receiver_task();
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "Failed to init audio receiver task");
+    //     return ret;
+    // }
 
     // 初始化串口显示任务（后台服务）
     ret = init_serial_display_task();

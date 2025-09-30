@@ -41,6 +41,8 @@ else()
         "app/game/game_main.c"
         "app/game/game_tetris.c"
         "app/game/game_snake.c"
+        "app/game/game_brickbreaker.c"
+        "app/game/game_ball_img.c"
 
         # app文件
         "app/serial_display.c"

@@ -12,43 +12,43 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
-#include <stdbool.h>
-#include "driver/i2s_tdm.h"
 #include "driver/gpio.h"
+#include "driver/i2s_tdm.h"
 #include "esp_err.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 // ========================================
 // 硬件连接配置
 // ========================================
-#define I2S_TDM_BCLK_PIN       7    // 位时钟
-#define I2S_TDM_LRCK_PIN       8    // 帧时钟/WS
-#define I2S_TDM_DATA_OUT_PIN   15   // 数据输出 (到MAX98357)
-#define I2S_TDM_DATA_IN_PIN    17   // 数据输入 (来自麦克风)
+#define I2S_TDM_BCLK_PIN 40     // 位时钟
+#define I2S_TDM_LRCK_PIN 41     // 帧时钟/WS
+#define I2S_TDM_DATA_OUT_PIN 42 // 数据输出 (到MAX98357)
+#define I2S_TDM_DATA_IN_PIN 38  // 数据输入 (来自麦克风)
 
 // ========================================
 // TDM配置参数 - 单MAX98357 + 单麦克风
 // ========================================
-#define I2S_TDM_SAMPLE_RATE    44100     // 采样率 44.1kHz
-#define I2S_TDM_BITS_PER_SAMPLE 16       // 16位采样
-#define I2S_TDM_CHANNELS       2         // TDM通道数: 扬声器+麦克风
-#define I2S_TDM_SLOT_BIT_WIDTH 32       // 物理时隙宽度
-#define I2S_TDM_SLOT_NUM       2         // TDM时隙数量
+#define I2S_TDM_SAMPLE_RATE 44100  // 采样率 44.1kHz
+#define I2S_TDM_BITS_PER_SAMPLE 16 // 16位采样
+#define I2S_TDM_CHANNELS 2         // TDM通道数: 扬声器+麦克风
+#define I2S_TDM_SLOT_BIT_WIDTH 32  // 物理时隙宽度
+#define I2S_TDM_SLOT_NUM 2         // TDM时隙数量
 
 // TDM时隙分配
-#define I2S_TDM_SLOT_SPEAKER   0         // 扬声器 (MAX98357)
-#define I2S_TDM_SLOT_MIC       1         // 麦克风
+#define I2S_TDM_SLOT_SPEAKER 0 // 扬声器 (MAX98357)
+#define I2S_TDM_SLOT_MIC 1     // 麦克风
 
 // ========================================
 // 数据结构
 // ========================================
 typedef struct {
-    i2s_chan_handle_t tx_handle;    // 发送通道句柄 (到MAX98357)
-    i2s_chan_handle_t rx_handle;    // 接收通道句柄 (来自麦克风)
-    bool is_initialized;             // 初始化状态
-    bool is_started;                 // 通道是否已启动
-    uint32_t sample_rate;           // 当前采样率
-    uint16_t buffer_size;           // 缓冲区大小
+    i2s_chan_handle_t tx_handle; // 发送通道句柄 (到MAX98357)
+    i2s_chan_handle_t rx_handle; // 接收通道句柄 (来自麦克风)
+    bool is_initialized;         // 初始化状态
+    bool is_started;             // 通道是否已启动
+    uint32_t sample_rate;        // 当前采样率
+    uint16_t buffer_size;        // 缓冲区大小
 } i2s_tdm_handle_t;
 
 // ========================================
@@ -86,7 +86,7 @@ esp_err_t i2s_tdm_stop(void);
  * @param bytes_written 实际写入的字节数
  * @return ESP_OK 成功
  */
-esp_err_t i2s_tdm_write(const void *data, size_t size, size_t *bytes_written);
+esp_err_t i2s_tdm_write(const void* data, size_t size, size_t* bytes_written);
 
 /**
  * @brief 读取麦克风音频数据
@@ -95,7 +95,7 @@ esp_err_t i2s_tdm_write(const void *data, size_t size, size_t *bytes_written);
  * @param bytes_read 实际读取的字节数
  * @return ESP_OK 成功
  */
-esp_err_t i2s_tdm_read(void *data, size_t size, size_t *bytes_read);
+esp_err_t i2s_tdm_read(void* data, size_t size, size_t* bytes_read);
 
 /**
  * @brief 设置采样率
@@ -126,4 +126,4 @@ uint16_t i2s_tdm_get_buffer_size(void);
 }
 #endif
 
-#endif // I2S_TDM_H 
+#endif // I2S_TDM_H

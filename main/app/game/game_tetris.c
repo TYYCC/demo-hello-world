@@ -43,21 +43,50 @@ static int high_scores[NUM_HIGH_SCORES] = {0};
 // 定义俄罗斯方块的形状和颜色
 typedef struct {
     uint8_t shape[4][4];
-    lv_color_t color;
+    lv_color_t color; // This is now unused but kept for struct compatibility
 } Tetromino;
+
+// --- 新增：颜色对结构体，用于实现3D效果 ---
+typedef struct {
+    lv_color_t outer;
+    lv_color_t inner;
+} TetrisColor;
 
 // 当前下落的方块
 static struct {
     int x, y;
     const Tetromino* p_tetromino;
     uint8_t shape[4][4];
+    uint8_t color_index;
+    TetrisColor color;      // 当前方块实际颜色(颜色对)
+    int rotation;           // 旋转状态: 0, 1, 2, 3
 } current_piece;
 
 // 下一个方块
 static struct {
     const Tetromino* p_tetromino;
     uint8_t shape[4][4];
+    uint8_t color_index;
+    TetrisColor color;      // 预览显示及实际使用的颜色(颜色对)
 } next_piece;
+
+// --- 更新：使用颜色对的调色板 ---
+static const TetrisColor PIECE_COLORS[] = {
+    {LV_COLOR_MAKE(0xD3, 0x2F, 0x2F), LV_COLOR_MAKE(0xFF, 0x52, 0x52)}, // 红
+    {LV_COLOR_MAKE(0x30, 0x3F, 0x9F), LV_COLOR_MAKE(0x53, 0x6D, 0xF3)}, // 蓝
+    {LV_COLOR_MAKE(0x38, 0x8E, 0x3C), LV_COLOR_MAKE(0x4C, 0xAF, 0x50)}, // 绿
+    {LV_COLOR_MAKE(0xF5, 0x7C, 0x00), LV_COLOR_MAKE(0xFF, 0x98, 0x00)}, // 橙
+    {LV_COLOR_MAKE(0x7B, 0x1F, 0xA2), LV_COLOR_MAKE(0x9C, 0x27, 0xB0)}, // 紫
+    {LV_COLOR_MAKE(0x00, 0x79, 0x6B), LV_COLOR_MAKE(0x00, 0x96, 0x88)}, // 青
+    {LV_COLOR_MAKE(0xF9, 0xA8, 0x25), LV_COLOR_MAKE(0xFF, 0xEB, 0x3B)}, // 黄
+};
+#define PIECE_COLORS_COUNT (sizeof(PIECE_COLORS) / sizeof(PIECE_COLORS[0]))
+
+// 全局颜色索引，用于在调色板中滚动选择颜色
+static int g_color_index = -1;
+
+// 每种方块类型（I,O,T,L,J,S,Z）独立维护一个颜色索引，初始为0xFF表示下一次从0开始
+static uint8_t type_to_color_index[7];
 
 // --- NVS (非易失性存储) 函数 ---
 
@@ -145,6 +174,22 @@ static const Tetromino tetrominos[] = {
      .color = LV_COLOR_MAKE(0xFF, 0x00, 0x00)}, // Z (红色)
 };
 
+// --- 新增: SRS踢墙数据表 ---
+// J, L, S, T, Z 方块的踢墙数据
+static const int8_t JLSTZ_WALL_KICK_DATA[4][5][2] = {
+    {{0, 0}, {-1, 0}, {-1, 1}, {0, -2}, {-1, -2}}, // 0 -> 1
+    {{0, 0}, {1, 0}, {1, -1}, {0, 2}, {1, 2}},   // 1 -> 2
+    {{0, 0}, {1, 0}, {1, 1}, {0, -2}, {1, -2}},   // 2 -> 3
+    {{0, 0}, {-1, 0}, {-1, -1}, {0, 2}, {-1, 2}}, // 3 -> 0
+};
+// I 方块的踢墙数据
+static const int8_t I_WALL_KICK_DATA[4][5][2] = {
+    {{0, 0}, {-2, 0}, {1, 0}, {-2, -1}, {1, 2}},   // 0 -> 1
+    {{0, 0}, {-1, 0}, {2, 0}, {-1, 2}, {2, -1}},  // 1 -> 2
+    {{0, 0}, {2, 0}, {-1, 0}, {2, 1}, {-1, -2}},  // 2 -> 3
+    {{0, 0}, {1, 0}, {-2, 0}, {1, -2}, {-2, 1}},  // 3 -> 0
+};
+
 // --- 函数声明 ---
 static void game_init(void);
 static void draw_board(void);
@@ -179,8 +224,18 @@ static bool check_collision(int new_x, int new_y, uint8_t piece_shape[4][4]) {
 
 // 生成下一个方块
 static void generate_next_piece() {
-    next_piece.p_tetromino = &tetrominos[esp_random() % (sizeof(tetrominos) / sizeof(Tetromino))];
+    const Tetromino* new_tetromino;
+    // 确保下一个方块与当前方块类型不同
+    do {
+        new_tetromino = &tetrominos[esp_random() % (sizeof(tetrominos) / sizeof(Tetromino))];
+    } while (current_piece.p_tetromino != NULL && new_tetromino == current_piece.p_tetromino);
+    next_piece.p_tetromino = new_tetromino;
+
     memcpy(next_piece.shape, next_piece.p_tetromino->shape, 16); // 4x4=16
+    // 全局滚动颜色
+    g_color_index = (g_color_index + 1) % PIECE_COLORS_COUNT;
+    next_piece.color_index = g_color_index;
+    next_piece.color = PIECE_COLORS[g_color_index];
 }
 
 // 生成新方块
@@ -195,6 +250,13 @@ static void spawn_new_piece() {
     memcpy(current_piece.shape, next_piece.shape, 16);
     current_piece.x = BOARD_WIDTH / 2 - 2;
     current_piece.y = 0;
+    current_piece.rotation = 0; // 初始化旋转状态
+    current_piece.color_index = next_piece.color_index;
+    current_piece.color = next_piece.color;
+
+    // 提交本类型的颜色索引，确保同类型的下一次颜色继续滚动
+    int curr_type_index = (int)(current_piece.p_tetromino - tetrominos);
+    type_to_color_index[curr_type_index] = current_piece.color_index;
 
     // 生成新的下一个方块
     generate_next_piece();
@@ -213,8 +275,8 @@ static void lock_piece() {
                 int board_x = current_piece.x + x;
                 int board_y = current_piece.y + y;
                 if (board_y >= 0) {
-                    // 在board中记录方块的类型（颜色索引+1）
-                    board[board_y][board_x] = (uint8_t)((current_piece.p_tetromino - tetrominos) + 1);
+                // 在board中记录颜色索引+1（0表示空）
+                board[board_y][board_x] = (uint8_t)(current_piece.color_index + 1);
                 }
             }
         }
@@ -264,19 +326,25 @@ static void clear_lines() {
 
 // --- 绘图函数 ---
 
-// 绘制单个方块
-static void draw_block(int x, int y, lv_color_t color) {
+// 绘制单个方块 (更新为3D效果)
+static void draw_block(int x, int y, TetrisColor color) {
     lv_draw_rect_dsc_t rect_dsc;
     lv_draw_rect_dsc_init(&rect_dsc);
-    rect_dsc.bg_color = color;
-    rect_dsc.radius = 2;
-    rect_dsc.border_width = BORDER_WIDTH;
+    rect_dsc.border_width = 1;
     rect_dsc.border_color = lv_color_black();
+    rect_dsc.radius = 2;
 
+    // 1. 绘制外框色
+    rect_dsc.bg_color = color.outer;
     lv_canvas_draw_rect(canvas, x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, &rect_dsc);
+
+    // 2. 在上方绘制内芯色，形成立体效果
+    rect_dsc.bg_color = color.inner;
+    rect_dsc.border_width = 0;
+    lv_canvas_draw_rect(canvas, x * BLOCK_SIZE + 2, y * BLOCK_SIZE + 1, BLOCK_SIZE - 4, BLOCK_SIZE - 3, &rect_dsc);
 }
 
-// 绘制下一个方块
+// 绘制下一个方块 (更新为3D效果)
 static void draw_next_piece() {
     if (!next_canvas || !next_piece.p_tetromino)
         return;
@@ -288,19 +356,27 @@ static void draw_next_piece() {
     int offset_x = 0; // 4x4方块在4x4画布中的偏移
     int offset_y = 0;
 
+    lv_draw_rect_dsc_t rect_dsc;
+    lv_draw_rect_dsc_init(&rect_dsc);
+    rect_dsc.radius = 2;
+
     // 绘制下一个方块
     for (int y = 0; y < 4; y++) {
         for (int x = 0; x < 4; x++) {
             if (next_piece.shape[y][x]) {
-                lv_draw_rect_dsc_t rect_dsc;
-                lv_draw_rect_dsc_init(&rect_dsc);
-                rect_dsc.bg_color = next_piece.p_tetromino->color;
-                rect_dsc.radius = 2;
-                rect_dsc.border_width = BORDER_WIDTH;
-                rect_dsc.border_color = lv_color_black();
+                int draw_x = (offset_x + x) * BLOCK_SIZE;
+                int draw_y = (offset_y + y) * BLOCK_SIZE;
 
-                lv_canvas_draw_rect(next_canvas, (offset_x + x) * BLOCK_SIZE, (offset_y + y) * BLOCK_SIZE, BLOCK_SIZE,
-                                    BLOCK_SIZE, &rect_dsc);
+                // 1. 绘制外框色
+                rect_dsc.bg_color = next_piece.color.outer;
+                rect_dsc.border_width = 1;
+                rect_dsc.border_color = lv_color_black();
+                lv_canvas_draw_rect(next_canvas, draw_x, draw_y, BLOCK_SIZE, BLOCK_SIZE, &rect_dsc);
+                
+                // 2. 绘制内芯色
+                rect_dsc.bg_color = next_piece.color.inner;
+                rect_dsc.border_width = 0;
+                lv_canvas_draw_rect(next_canvas, draw_x + 2, draw_y + 1, BLOCK_SIZE - 4, BLOCK_SIZE - 3, &rect_dsc);
             }
         }
     }
@@ -315,7 +391,7 @@ static void draw_board() {
     for (int y = 0; y < BOARD_HEIGHT; y++) {
         for (int x = 0; x < BOARD_WIDTH; x++) {
             if (board[y][x]) {
-                draw_block(x, y, tetrominos[board[y][x] - 1].color);
+                draw_block(x, y, PIECE_COLORS[board[y][x] - 1]);
             }
         }
     }
@@ -325,7 +401,7 @@ static void draw_board() {
         for (int y = 0; y < 4; y++) {
             for (int x = 0; x < 4; x++) {
                 if (current_piece.shape[y][x]) {
-                    draw_block(current_piece.x + x, current_piece.y + y, current_piece.p_tetromino->color);
+                    draw_block(current_piece.x + x, current_piece.y + y, current_piece.color);
                 }
             }
         }
@@ -337,22 +413,48 @@ static void draw_board() {
 
 // --- 玩家动作 ---
 
+// 更新为带踢墙逻辑的SRS旋转
 static void tetris_rotate(void) {
     if (game_over)
         return;
-    uint8_t temp[4][4] = {0};
 
-    // 顺时针旋转矩阵
+    // 1. 创建临时旋转后的形状
+    uint8_t temp_shape[4][4] = {0};
     for (int y = 0; y < 4; y++) {
         for (int x = 0; x < 4; x++) {
-            temp[x][3 - y] = current_piece.shape[y][x];
+            temp_shape[x][3 - y] = current_piece.shape[y][x];
         }
     }
 
-    if (!check_collision(current_piece.x, current_piece.y, temp)) {
-        memcpy(current_piece.shape, temp, sizeof(temp));
-        draw_board();
+    int original_rotation = current_piece.rotation;
+    int new_rotation = (original_rotation + 1) % 4;
+    const int8_t (*kick_table)[2];
+
+    // 2. 根据方块类型选择踢墙数据表 (I型方块是tetrominos数组的第一个)
+    if (current_piece.p_tetromino == &tetrominos[0]) {
+        kick_table = I_WALL_KICK_DATA[original_rotation];
+    } else {
+        kick_table = JLSTZ_WALL_KICK_DATA[original_rotation];
     }
+
+    // 3. 遍历5个踢墙测试点
+    for (int i = 0; i < 5; i++) {
+        // 偏移量(x, y) - y轴在LVGL和参考代码中都是向下为正，但SRS标准表通常假设y向上为正。
+        // 参考代码中顺时针旋转是 y - offset, 我们也遵循此惯例。
+        int test_x = current_piece.x + kick_table[i][0];
+        int test_y = current_piece.y - kick_table[i][1];
+
+        if (!check_collision(test_x, test_y, temp_shape)) {
+            // 找到一个可行的位置
+            current_piece.x = test_x;
+            current_piece.y = test_y;
+            memcpy(current_piece.shape, temp_shape, sizeof(temp_shape));
+            current_piece.rotation = new_rotation;
+            draw_board();
+            return; // 旋转成功，退出函数
+        }
+    }
+    // 所有5个测试点都失败，旋转无法进行
 }
 
 static void tetris_move_left(void) {
@@ -488,8 +590,9 @@ static void game_init(void) {
     score = 0;
     total_lines_cleared = 0;
 
-    // 初始化下一个方块
+    // 初始化下一个方块并重置全局颜色索引
     next_piece.p_tetromino = NULL;
+    g_color_index = -1; // 重置颜色索引，使第一个方块颜色为PIECE_COLORS[0]
 
     if (score_label) {
         lv_label_set_text_fmt(score_label, "Score:\n%d", score);
@@ -679,6 +782,7 @@ static void start_game_cb(lv_event_t* e) {
 static void back_to_app_menu(lv_event_t* e) {
     lv_obj_t* parent = lv_event_get_user_data(e);
     if (parent) {
+        cleanup_game_resources(); // 释放游戏资源
         lv_obj_clean(parent);
         ui_game_menu_create(parent); // 返回到最外层的游戏菜单
     }

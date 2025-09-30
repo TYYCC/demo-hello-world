@@ -25,6 +25,12 @@ void ui_snake_create(lv_obj_t* parent);
  */
 void ui_tetris_create(lv_obj_t* parent);
 
+/**
+ * @brief 创建打砖块游戏界面
+ * @param parent 父对象
+ */
+void ui_brickbreaker_create(lv_obj_t* parent);
+
 #ifdef __cplusplus
 }
 #endif
