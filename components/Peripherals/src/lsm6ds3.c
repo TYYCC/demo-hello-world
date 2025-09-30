@@ -17,6 +17,7 @@
 // Fusion AHRS
 #include "FusionAhrs.h"
 #include "FusionMath.h"
+#include "FusionOffset.h"
 
 // ========================================
 // 私有变量和常量
@@ -24,6 +25,7 @@
 static const char* TAG = "LSM6DS3";
 static lsm6ds3_handle_t g_lsm6ds3_handle = {0};
 static FusionAhrs s_ahrs;          // Fusion AHRS 状态
+static FusionOffset s_offset;      // Fusion 零漂补偿算法
 static bool s_ahrs_inited = false; // AHRS 是否已初始化
 static int64_t s_last_time_us = 0; // 上次更新时间 (us)
 
@@ -355,14 +357,46 @@ esp_err_t lsm6ds3_init(void) {
     // 设置默认满量程范围
     g_lsm6ds3_handle.accel_fs = LSM6DS3_ACCEL_FS_2G;
     g_lsm6ds3_handle.gyro_fs = LSM6DS3_GYRO_FS_250DPS;
+    
+    // 配置更高的采样率以提高精度（416Hz）
+    ret = lsm6ds3_config_accel(LSM6DS3_ODR_416_HZ, LSM6DS3_ACCEL_FS_2G);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to configure accelerometer ODR");
+    }
+    
+    ret = lsm6ds3_config_gyro(LSM6DS3_ODR_416_HZ, LSM6DS3_GYRO_FS_250DPS);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to configure gyroscope ODR");
+    }
+    
+    // 启用传感器
+    lsm6ds3_accel_enable(true);
+    lsm6ds3_gyro_enable(true);
 
     g_lsm6ds3_handle.is_initialized = true;
-    ESP_LOGI(TAG, "LSM6DS3 initialized successfully");
+    ESP_LOGI(TAG, "LSM6DS3 initialized successfully with 416Hz ODR");
 
     // 初始化 Fusion AHRS
     FusionAhrsInitialise(&s_ahrs);
+    
+    // 配置 AHRS 参数以提高精度和减少漂移
+    const FusionAhrsSettings settings = {
+        .convention = FusionConventionNwu,           // 坐标系：北-西-上
+        .gain = 0.5f,                                 // 增益：平衡陀螺仪和加速度计 (0.5 是适中值)
+        .gyroscopeRange = 250.0f,                     // 陀螺仪量程 (dps)
+        .accelerationRejection = 10.0f,               // 加速度拒绝阈值 (g)
+        .magneticRejection = 0.0f,                    // 磁力拒绝（无磁力计时设为0）
+        .recoveryTriggerPeriod = 5 * 416,             // 恢复触发周期 (5秒 @ 416Hz)
+    };
+    FusionAhrsSetSettings(&s_ahrs, &settings);
+    
+    // 初始化零漂补偿算法（这是减少零漂的关键！）
+    FusionOffsetInitialise(&s_offset, 416);  // 采样率 416Hz（与传感器 ODR 匹配）
+    
     s_ahrs_inited = true;
     s_last_time_us = esp_timer_get_time();
+    
+    ESP_LOGI(TAG, "Fusion AHRS and Offset initialized with optimized settings");
 
     return ESP_OK;
 }
@@ -493,6 +527,8 @@ esp_err_t lsm6ds3_read_accel(lsm6ds3_accel_data_t* accel_data) {
     accel_data->y = lsm6ds3_convert_accel_raw_to_g(raw_y, g_lsm6ds3_handle.accel_fs);
     accel_data->z = lsm6ds3_convert_accel_raw_to_g(raw_z, g_lsm6ds3_handle.accel_fs);
 
+    // 注意：校准应在应用层调用 apply_accelerometer_calibration()
+    
     return ESP_OK;
 }
 
@@ -524,6 +560,8 @@ esp_err_t lsm6ds3_read_gyro(lsm6ds3_gyro_data_t* gyro_data) {
     gyro_data->y = lsm6ds3_convert_gyro_raw_to_dps(raw_y, g_lsm6ds3_handle.gyro_fs);
     gyro_data->z = lsm6ds3_convert_gyro_raw_to_dps(raw_z, g_lsm6ds3_handle.gyro_fs);
 
+    // 注意：校准应在应用层调用 apply_gyroscope_calibration()
+    
     return ESP_OK;
 }
 
@@ -626,6 +664,16 @@ esp_err_t lsm6ds3_read_euler(lsm6ds3_euler_t* euler) {
     // 若 AHRS 未初始化则初始化一次
     if (!s_ahrs_inited) {
         FusionAhrsInitialise(&s_ahrs);
+        const FusionAhrsSettings settings = {
+            .convention = FusionConventionNwu,
+            .gain = 0.5f,
+            .gyroscopeRange = 250.0f,
+            .accelerationRejection = 10.0f,
+            .magneticRejection = 0.0f,
+            .recoveryTriggerPeriod = 5 * 416,
+        };
+        FusionAhrsSetSettings(&s_ahrs, &settings);
+        FusionOffsetInitialise(&s_offset, 416);
         s_ahrs_inited = true;
         s_last_time_us = esp_timer_get_time();
     }
@@ -646,8 +694,11 @@ esp_err_t lsm6ds3_read_euler(lsm6ds3_euler_t* euler) {
     s_last_time_us = now_us;
 
     // 封装为 Fusion 向量（单位：陀螺仪 dps，加速度 g）
-    const FusionVector gyroscope = {.axis = {data.gyro.x, data.gyro.y, data.gyro.z}};
+    FusionVector gyroscope = {.axis = {data.gyro.x, data.gyro.y, data.gyro.z}};
     const FusionVector accelerometer = {.axis = {data.accel.x, data.accel.y, data.accel.z}};
+
+    // 【关键】应用零漂补偿算法 - 动态修正陀螺仪零漂
+    gyroscope = FusionOffsetUpdate(&s_offset, gyroscope);
 
     // 无磁力计更新
     FusionAhrsUpdateNoMagnetometer(&s_ahrs, gyroscope, accelerometer, deltaTime);

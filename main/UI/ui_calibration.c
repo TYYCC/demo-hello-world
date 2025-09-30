@@ -60,7 +60,12 @@ static lv_timer_t* g_ui_update_timer = NULL;
 static QueueHandle_t g_test_queue = NULL;
 
 // 消息类型
-typedef enum { MSG_UPDATE_JOYSTICK, MSG_UPDATE_GYROSCOPE, MSG_UPDATE_ACCELEROMETER, MSG_STOP_TEST } test_msg_type_t;
+typedef enum { 
+    MSG_UPDATE_JOYSTICK, 
+    MSG_UPDATE_GYROSCOPE,      // 陀螺仪角速度数据
+    MSG_UPDATE_ACCELEROMETER, 
+    MSG_STOP_TEST 
+} test_msg_type_t;
 
 // 摇杆测试数据结构
 typedef struct {
@@ -78,7 +83,7 @@ typedef struct {
     lv_obj_t* canvas;
     lv_obj_t* value_label;
     point3d_t initial_vertices[8];   // 初始立方体顶点
-    float angle_x, angle_y, angle_z; // 旋转角度
+    float angle_x, angle_y, angle_z; // 旋转角度（使用改进的积分算法）
 } gyro_test_data_t;
 
 typedef struct {
@@ -119,8 +124,9 @@ static void calibration_back_btn_callback(lv_event_t* e) {
             ui_main_menu_create(screen);
         }
     } else {
-        // 返回校准主菜单
+        // 返回校准主菜单，刷新显示最新状态
         g_current_state = CALIBRATION_STATE_MAIN_MENU;
+        ESP_LOGI(TAG, "Returning to calibration main menu, refreshing status");
         create_main_menu(g_content_container);
     }
 }
@@ -144,7 +150,16 @@ static void calibrate_btn_event_cb(lv_event_t* e) {
 
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "Calibration completed successfully");
-        // 更新状态显示
+        
+        // 【重要】校准完成后，立即更新主菜单显示
+        // 无论当前在哪个状态，都刷新一次确保状态同步
+        const calibration_status_t* status = get_calibration_status();
+        if (status) {
+            ESP_LOGI(TAG, "Updated calibration status: Gyro=%d, Accel=%d", 
+                     status->gyroscope_calibrated, status->accelerometer_calibrated);
+        }
+        
+        // 如果在主菜单，刷新显示
         if (g_current_state == CALIBRATION_STATE_MAIN_MENU) {
             create_main_menu(g_content_container);
         }
@@ -187,8 +202,8 @@ static void test_btn_event_cb(lv_event_t* e) {
             }
         }
 
-        // 创建UI更新定时器
-        g_ui_update_timer = lv_timer_create(ui_update_timer_cb, 50, g_test_queue); // 50ms刷新率
+        // 创建UI更新定时器（20ms = 50Hz，提高响应速度）
+        g_ui_update_timer = lv_timer_create(ui_update_timer_cb, 20, g_test_queue);
 
         lv_obj_t* btn = lv_event_get_target(e);
         lv_obj_t* label = lv_obj_get_child(btn, 0);
@@ -229,9 +244,12 @@ static void create_main_menu(lv_obj_t* content_container) {
 
     lv_obj_clean(content_container);
 
-    // 校准状态显示
+    // 【关键】获取最新的校准状态
+    // 确保显示的是从 NVS 加载的实际状态
     const calibration_status_t* status = get_calibration_status();
     if (status) {
+        ESP_LOGI(TAG, "Displaying calibration status: Gyro=%d, Accel=%d", 
+                 status->gyroscope_calibrated, status->accelerometer_calibrated);
         char status_text[256];
         snprintf(status_text, sizeof(status_text),
                  "校准状态:\n"
@@ -634,14 +652,25 @@ static void ui_update_timer_cb(lv_timer_t* timer) {
         if (test_data) {
             if (xQueueReceive(test_queue, &msg, 0) == pdPASS) {
                 if (msg.type == MSG_UPDATE_GYROSCOPE) {
-                    test_data->angle_x += msg.data.gyro.x * 0.01f; // 假设0.01是比例因子
-                    test_data->angle_y += msg.data.gyro.y * 0.01f;
-                    test_data->angle_z += msg.data.gyro.z * 0.01f;
+                    // 【改进的积分算法】使用校准后的数据，减少漂移
+                    float dt = 0.02f; // 20ms 更新周期 (50Hz)
+                    
+                    // 死区处理：角速度很小时认为静止，避免累积噪声
+                    float gyro_x = (fabsf(msg.data.gyro.x) > 1.0f) ? msg.data.gyro.x : 0.0f;
+                    float gyro_y = (fabsf(msg.data.gyro.y) > 1.0f) ? msg.data.gyro.y : 0.0f;
+                    float gyro_z = (fabsf(msg.data.gyro.z) > 1.0f) ? msg.data.gyro.z : 0.0f;
+                    
+                    // 角速度积分（交换X/Y修正轴向）
+                    test_data->angle_x += gyro_y * dt * (M_PI / 180.0f);  // Roll 用 Y 轴
+                    test_data->angle_y += gyro_x * dt * (M_PI / 180.0f);  // Pitch 用 X 轴
+                    test_data->angle_z += gyro_z * dt * (M_PI / 180.0f);  // Yaw
 
-                    draw_cube_on_canvas(test_data->canvas, test_data->initial_vertices, test_data->angle_x, test_data->angle_y,
-                                        test_data->angle_z);
-                    lv_label_set_text_fmt(test_data->value_label, "X: %.2f, Y: %.2f, Z: %.2f", msg.data.gyro.x, msg.data.gyro.y,
-                                        msg.data.gyro.z);
+                    draw_cube_on_canvas(test_data->canvas, test_data->initial_vertices, 
+                                        test_data->angle_x, test_data->angle_y, test_data->angle_z);
+                    
+                    // 更新数值显示
+                    lv_label_set_text_fmt(test_data->value_label, "X: %.2f, Y: %.2f, Z: %.2f", 
+                                          msg.data.gyro.x, msg.data.gyro.y, msg.data.gyro.z);
                 }
             }
         }
@@ -675,7 +704,7 @@ static void ui_update_timer_cb(lv_timer_t* timer) {
 
 static void test_task(void* pvParameter) {
     TickType_t last_wake_time = xTaskGetTickCount();
-    const TickType_t frequency = pdMS_TO_TICKS(100); // 100ms更新一次
+    const TickType_t frequency = pdMS_TO_TICKS(20); // 20ms更新一次 (50Hz，提高采样率)
     test_msg_t msg;
 
     ESP_LOGI(TAG, "Test task started");
@@ -706,8 +735,12 @@ static void test_task(void* pvParameter) {
                 break;
             }
             case CALIBRATION_STATE_GYROSCOPE_TEST: {
+                // 读取陀螺仪原始数据（避免与后台 Fusion AHRS 任务冲突）
                 lsm6ds3_data_t imu_data;
                 if (lsm6ds3_read_all(&imu_data) == ESP_OK) {
+                    // 【关键】应用用户校准的偏置
+                    apply_gyroscope_calibration(&imu_data.gyro.x, &imu_data.gyro.y, &imu_data.gyro.z);
+                    
                     test_msg_t update_msg;
                     update_msg.type = MSG_UPDATE_GYROSCOPE;
                     update_msg.data.gyro.x = imu_data.gyro.x;
@@ -720,6 +753,9 @@ static void test_task(void* pvParameter) {
             case CALIBRATION_STATE_ACCELEROMETER_TEST: {
                 lsm6ds3_data_t imu_data;
                 if (lsm6ds3_read_all(&imu_data) == ESP_OK) {
+                    // 【关键】应用用户校准的偏置
+                    apply_accelerometer_calibration(&imu_data.accel.x, &imu_data.accel.y, &imu_data.accel.z);
+                    
                     test_msg_t update_msg;
                     update_msg.type = MSG_UPDATE_ACCELEROMETER;
                     update_msg.data.accel.x = imu_data.accel.x;
@@ -762,33 +798,8 @@ static void update_joystick_test_ui(int16_t joy1_x, int16_t joy1_y) {
     lv_label_set_text(test_data->value_label, text_buf);
 }
 
-// 更新陀螺仪测试界面
-static void update_gyroscope_test_ui(float gyro_x, float gyro_y, float gyro_z) {
-    if (!g_content_container)
-        return;
-
-    gyro_test_data_t* test_data = (gyro_test_data_t*)lv_obj_get_user_data(g_content_container);
-    if (!test_data)
-        return;
-
-    // 更新角度 (LSM6DS3输出的是mdps, 即毫度/秒)
-    float dt = 0.1f; // 100ms更新周期
-    test_data->angle_x += (gyro_x / 1000.0f) * dt * (M_PI / 180.0f);
-    test_data->angle_y += (gyro_y / 1000.0f) * dt * (M_PI / 180.0f);
-    test_data->angle_z += (gyro_z / 1000.0f) * dt * (M_PI / 180.0f);
-
-    // 重绘立方体
-    draw_cube_on_canvas(test_data->canvas, test_data->initial_vertices, test_data->angle_x, test_data->angle_y,
-                        test_data->angle_z);
-
-    // 通知LVGL画布内容已改变，需要重绘
-    lv_obj_invalidate(test_data->canvas);
-
-    // 更新数值显示
-    char text_buf[64];
-    snprintf(text_buf, sizeof(text_buf), "X: %.2f, Y: %.2f, Z: %.2f", gyro_x, gyro_y, gyro_z);
-    lv_label_set_text(test_data->value_label, text_buf);
-}
+// 注意：update_gyroscope_test_ui 已删除
+// 现在使用 Fusion AHRS 的欧拉角，在 ui_update_timer_cb 中直接处理
 
 // 更新加速度计测试界面
 static void update_accelerometer_test_ui(float accel_x, float accel_y, float accel_z) {
@@ -804,27 +815,4 @@ static void update_accelerometer_test_ui(float accel_x, float accel_y, float acc
     lv_label_set_text(value_label, text_buf);
 }
 
-// UI更新定时器回调 - 处理测试消息队列
-static void gyro_update_timer_cb(lv_timer_t* timer) {
-    QueueHandle_t queue = (QueueHandle_t)timer->user_data;
-    test_msg_t msg;
-
-    // 检查队列中是否有消息，非阻塞
-    while (xQueueReceive(queue, &msg, 0) == pdTRUE) {
-        switch (msg.type) {
-        case MSG_UPDATE_JOYSTICK:
-            // 更新摇杆UI，只使用摇杆1的数据
-            update_joystick_test_ui(msg.data.joystick.joy1_x, msg.data.joystick.joy1_y);
-            break;
-        case MSG_UPDATE_GYROSCOPE:
-            update_gyroscope_test_ui(msg.data.gyro.x, msg.data.gyro.y, msg.data.gyro.z);
-            break;
-        case MSG_UPDATE_ACCELEROMETER:
-            update_accelerometer_test_ui(msg.data.accel.x, msg.data.accel.y, msg.data.accel.z);
-            break;
-        case MSG_STOP_TEST:
-            // 收到停止消息时，这个定时器应该已经被删除了，这里不做处理
-            break;
-        }
-    }
-}
+// 注意：gyro_update_timer_cb 已被 ui_update_timer_cb 替代，功能合并

@@ -6,6 +6,7 @@
  */
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "nvs_flash.h"
@@ -132,10 +133,19 @@ static esp_err_t load_calibration_from_nvs(void)
     }
     
     size_t required_size = sizeof(calibration_data_t);
-    err = nvs_get_blob(nvs_handle, "calibration_data", g_calibration_data, &required_size);
+    // NVS key 最大长度15字符，使用缩写
+    err = nvs_get_blob(nvs_handle, "calib_data", g_calibration_data, &required_size);
     
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Calibration data loaded from NVS");
+        ESP_LOGI(TAG, "Calibration data loaded from NVS (size: %d bytes)", required_size);
+        
+        // 验证数据完整性
+        if (required_size != sizeof(calibration_data_t)) {
+            ESP_LOGW(TAG, "Calibration data size mismatch! Expected %d, got %d", 
+                     sizeof(calibration_data_t), required_size);
+            nvs_close(nvs_handle);
+            return ESP_ERR_INVALID_SIZE;
+        }
         
         // 更新校准状态
         g_calibration_status.joystick_calibrated = g_calibration_data->joystick.calibrated;
@@ -143,8 +153,27 @@ static esp_err_t load_calibration_from_nvs(void)
         g_calibration_status.accelerometer_calibrated = g_calibration_data->accelerometer.calibrated;
         g_calibration_status.battery_calibrated = g_calibration_data->battery.calibrated;
         g_calibration_status.touchscreen_calibrated = g_calibration_data->touchscreen.calibrated;
+        
+        // 打印详细的校准状态
+        ESP_LOGI(TAG, "Calibration status loaded:");
+        ESP_LOGI(TAG, "  - Joystick: %s", g_calibration_status.joystick_calibrated ? "Calibrated" : "Not calibrated");
+        ESP_LOGI(TAG, "  - Gyroscope: %s (bias: %.3f, %.3f, %.3f)", 
+                 g_calibration_status.gyroscope_calibrated ? "Calibrated" : "Not calibrated",
+                 g_calibration_data->gyroscope.bias_x,
+                 g_calibration_data->gyroscope.bias_y,
+                 g_calibration_data->gyroscope.bias_z);
+        ESP_LOGI(TAG, "  - Accelerometer: %s", g_calibration_status.accelerometer_calibrated ? "Calibrated" : "Not calibrated");
+        ESP_LOGI(TAG, "  - Battery: %s", g_calibration_status.battery_calibrated ? "Calibrated" : "Not calibrated");
+        ESP_LOGI(TAG, "  - Touchscreen: %s", g_calibration_status.touchscreen_calibrated ? "Calibrated" : "Not calibrated");
     } else {
         ESP_LOGW(TAG, "No calibration data found in NVS: %s", esp_err_to_name(err));
+        
+        // 确保状态为未校准
+        g_calibration_status.joystick_calibrated = false;
+        g_calibration_status.gyroscope_calibrated = false;
+        g_calibration_status.accelerometer_calibrated = false;
+        g_calibration_status.battery_calibrated = false;
+        g_calibration_status.touchscreen_calibrated = false;
     }
     
     nvs_close(nvs_handle);
@@ -163,7 +192,8 @@ static esp_err_t save_calibration_to_nvs(void)
         return err;
     }
     
-    err = nvs_set_blob(nvs_handle, "calibration_data", g_calibration_data, sizeof(calibration_data_t));
+    // NVS key 最大长度15字符，使用缩写
+    err = nvs_set_blob(nvs_handle, "calib_data", g_calibration_data, sizeof(calibration_data_t));
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save calibration data: %s", esp_err_to_name(err));
         nvs_close(nvs_handle);
@@ -174,7 +204,11 @@ static esp_err_t save_calibration_to_nvs(void)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to commit calibration data: %s", esp_err_to_name(err));
     } else {
-        ESP_LOGI(TAG, "Calibration data saved to NVS");
+        ESP_LOGI(TAG, "Calibration data saved to NVS (%d bytes)", sizeof(calibration_data_t));
+        ESP_LOGI(TAG, "Saved status: Gyro=%d, Accel=%d, Joystick=%d",
+                 g_calibration_data->gyroscope.calibrated,
+                 g_calibration_data->accelerometer.calibrated,
+                 g_calibration_data->joystick.calibrated);
     }
     
     nvs_close(nvs_handle);
@@ -254,6 +288,12 @@ esp_err_t calibrate_joystick(void)
     g_calibration_data->joystick.calibrated = true;
     g_calibration_status.joystick_calibrated = true;
     
+    // 保存到NVS
+    esp_err_t ret = save_calibration_to_nvs();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to save joystick calibration to NVS");
+    }
+    
     ESP_LOGI(TAG, "Joystick calibrated - Center: (%d, %d)", 
              g_calibration_data->joystick.center_x, g_calibration_data->joystick.center_y);
     
@@ -267,20 +307,49 @@ esp_err_t calibrate_gyroscope(void)
         return ESP_ERR_INVALID_STATE;
     }
     
-    ESP_LOGI(TAG, "Starting gyroscope calibration...");
+    ESP_LOGI(TAG, "Starting gyroscope calibration... Please keep the device STILL!");
     
-    // 读取多次陀螺仪数据计算偏置
-    const int samples = 100;
+    // 增加采样数量和时间，提高校准精度
+    const int samples = 500;  // 从100增加到500
+    const int delay_ms = 10;  // 10ms间隔 = 总共5秒
     float sum_x = 0, sum_y = 0, sum_z = 0;
+    
+    // 第一阶段：检测设备是否静止
+    float initial_x = 0, initial_y = 0, initial_z = 0;
+    bool first_read = true;
     
     for (int i = 0; i < samples; i++) {
         lsm6ds3_data_t imu_data;
         if (lsm6ds3_read_all(&imu_data) == ESP_OK) {
+            // 第一次读取作为基准
+            if (first_read) {
+                initial_x = imu_data.gyro.x;
+                initial_y = imu_data.gyro.y;
+                initial_z = imu_data.gyro.z;
+                first_read = false;
+            }
+            
+            // 检测运动：如果变化超过阈值，说明设备在移动
+            float delta_x = imu_data.gyro.x - initial_x;
+            float delta_y = imu_data.gyro.y - initial_y;
+            float delta_z = imu_data.gyro.z - initial_z;
+            float motion = sqrtf(delta_x*delta_x + delta_y*delta_y + delta_z*delta_z);
+            
+            if (motion > 5.0f) {  // 阈值：5 dps
+                ESP_LOGW(TAG, "Device is moving! Please keep still. Restarting calibration...");
+                // 重置采样
+                i = 0;
+                sum_x = sum_y = sum_z = 0;
+                first_read = true;
+                vTaskDelay(pdMS_TO_TICKS(500)); // 等待500ms后重新开始
+                continue;
+            }
+            
             sum_x += imu_data.gyro.x;
             sum_y += imu_data.gyro.y;
             sum_z += imu_data.gyro.z;
         }
-        vTaskDelay(pdMS_TO_TICKS(10)); // 10ms延迟
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
     
     // 计算平均偏置
@@ -297,7 +366,11 @@ esp_err_t calibrate_gyroscope(void)
     g_calibration_data->gyroscope.calibrated = true;
     g_calibration_status.gyroscope_calibrated = true;
     
-    ESP_LOGI(TAG, "Gyroscope calibrated - Bias: (%.3f, %.3f, %.3f)", 
+    // 保存到NVS
+    save_calibration_to_nvs();
+    
+    ESP_LOGI(TAG, "Gyroscope calibrated successfully!");
+    ESP_LOGI(TAG, "Bias: X=%.3f, Y=%.3f, Z=%.3f dps", 
              g_calibration_data->gyroscope.bias_x,
              g_calibration_data->gyroscope.bias_y,
              g_calibration_data->gyroscope.bias_z);
@@ -313,25 +386,58 @@ esp_err_t calibrate_accelerometer(void)
     }
     
     ESP_LOGI(TAG, "Starting accelerometer calibration...");
+    ESP_LOGI(TAG, "Please place device on a FLAT, LEVEL surface!");
     
-    // 读取多次加速度计数据计算偏置
-    const int samples = 100;
+    // 增加采样数量和时间
+    const int samples = 500;  // 从100增加到500
+    const int delay_ms = 10;  // 10ms间隔 = 总共5秒
     float sum_x = 0, sum_y = 0, sum_z = 0;
+    
+    // 静止检测
+    float initial_x = 0, initial_y = 0, initial_z = 0;
+    bool first_read = true;
     
     for (int i = 0; i < samples; i++) {
         lsm6ds3_data_t imu_data;
         if (lsm6ds3_read_all(&imu_data) == ESP_OK) {
+            if (first_read) {
+                initial_x = imu_data.accel.x;
+                initial_y = imu_data.accel.y;
+                initial_z = imu_data.accel.z;
+                first_read = false;
+            }
+            
+            // 检测运动：加速度计阈值0.1g
+            float delta_x = imu_data.accel.x - initial_x;
+            float delta_y = imu_data.accel.y - initial_y;
+            float delta_z = imu_data.accel.z - initial_z;
+            float motion = sqrtf(delta_x*delta_x + delta_y*delta_y + delta_z*delta_z);
+            
+            if (motion > 0.1f) {  // 阈值：0.1g
+                ESP_LOGW(TAG, "Device is moving! Please keep still. Restarting calibration...");
+                i = 0;
+                sum_x = sum_y = sum_z = 0;
+                first_read = true;
+                vTaskDelay(pdMS_TO_TICKS(500));
+                continue;
+            }
+            
             sum_x += imu_data.accel.x;
             sum_y += imu_data.accel.y;
             sum_z += imu_data.accel.z;
         }
-        vTaskDelay(pdMS_TO_TICKS(10)); // 10ms延迟
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
     
-    // 计算平均偏置
-    g_calibration_data->accelerometer.bias_x = sum_x / samples;
-    g_calibration_data->accelerometer.bias_y = sum_y / samples;
-    g_calibration_data->accelerometer.bias_z = sum_z / samples - 9.81f; // 减去重力
+    // 计算平均值
+    float avg_x = sum_x / samples;
+    float avg_y = sum_y / samples;
+    float avg_z = sum_z / samples;
+    
+    // 计算偏置（假设设备水平放置，Z轴应该是1g）
+    g_calibration_data->accelerometer.bias_x = avg_x;
+    g_calibration_data->accelerometer.bias_y = avg_y;
+    g_calibration_data->accelerometer.bias_z = avg_z - 1.0f; // 减去1g重力（单位是g）
     
     // 设置默认比例因子
     g_calibration_data->accelerometer.scale_x = 1.0f;
@@ -342,7 +448,11 @@ esp_err_t calibrate_accelerometer(void)
     g_calibration_data->accelerometer.calibrated = true;
     g_calibration_status.accelerometer_calibrated = true;
     
-    ESP_LOGI(TAG, "Accelerometer calibrated - Bias: (%.3f, %.3f, %.3f)", 
+    // 保存到NVS
+    save_calibration_to_nvs();
+    
+    ESP_LOGI(TAG, "Accelerometer calibrated successfully!");
+    ESP_LOGI(TAG, "Bias: X=%.3f, Y=%.3f, Z=%.3f g", 
              g_calibration_data->accelerometer.bias_x,
              g_calibration_data->accelerometer.bias_y,
              g_calibration_data->accelerometer.bias_z);
