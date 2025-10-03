@@ -131,6 +131,9 @@ server_cert.pem
 # *.hex
 partition_table/
 others/consultation/
+others/MP4/
+others/pic/
+others/example/
 
 # ========================================
 # 保留重要文件（使用 ! 来取消忽略）

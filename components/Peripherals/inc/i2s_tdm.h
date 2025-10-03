@@ -25,6 +25,7 @@ extern "C" {
 #define I2S_TDM_LRCK_PIN 41     // 帧时钟/WS
 #define I2S_TDM_DATA_OUT_PIN 42 // 数据输出 (到MAX98357)
 #define I2S_TDM_DATA_IN_PIN 38  // 数据输入 (来自麦克风)
+#define I2S_TDM_SD_MODE_PIN 17  // MAX98357的SD_MODE引脚
 
 // ========================================
 // TDM配置参数 - 单MAX98357 + 单麦克风

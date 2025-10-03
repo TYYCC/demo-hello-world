@@ -92,6 +92,25 @@ esp_err_t i2s_tdm_init(void) {
         return ret;
     }
 
+    // 配置SD_MODE引脚，用于控制MAX98357
+    // 注意：确保SD_MODE引脚连接到GPIO17
+    gpio_config_t sd_mode_cfg = {
+        .pin_bit_mask = (1ULL << I2S_TDM_SD_MODE_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    ret = gpio_config(&sd_mode_cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure SD_MODE pin: %s", esp_err_to_name(ret));
+        i2s_del_channel(g_i2s_tdm_handle.tx_handle);
+        i2s_del_channel(g_i2s_tdm_handle.rx_handle);
+        return ret;
+    }
+    // 设置为高电平，启用扬声器
+    gpio_set_level(I2S_TDM_SD_MODE_PIN, 0); 
+
     g_i2s_tdm_handle.is_initialized = true;
     g_i2s_tdm_handle.sample_rate = I2S_TDM_SAMPLE_RATE;
     g_i2s_tdm_handle.buffer_size = 1024; // 默认缓冲区大小
