@@ -202,13 +202,20 @@ esp_err_t wifi_manager_start(void) {
     }
 
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK;
-
-    // 设置WiFi带宽为40MHz，提高传输速率
-    ESP_ERROR_CHECK(esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40));
     
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+
+    // 设置WiFi带宽为40MHz，提高传输速率（WiFi启动后设置）
+    esp_err_t bandwidth_ret = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40);
+    if (bandwidth_ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set WiFi bandwidth to HT40, trying HT20: %s", esp_err_to_name(bandwidth_ret));
+        bandwidth_ret = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+        if (bandwidth_ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to set WiFi bandwidth to HT20: %s", esp_err_to_name(bandwidth_ret));
+        }
+    }
 
     // WiFi启动后设置发射功率
     esp_err_t power_ret = esp_wifi_set_max_tx_power(32);

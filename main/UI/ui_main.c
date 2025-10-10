@@ -324,20 +324,25 @@ typedef struct {
 
 // 菜单项数组
 static menu_item_t menu_items[] = {
-    {"Settings", settings_cb},
-    {"Game", game_cb},
     {"Image Transfer", image_transfer_cb},
     {"Serial Display", serial_display_cb},
+    {"Remote Control", telemetry_cb},
+    {"Game", game_cb},
     {"Calibration", calibration_cb},
-    {"Test", test_cb},
-    {"Remote Control", telemetry_cb} // 添加遥控器菜单项
+    {"Settings", settings_cb}
+    // {"Test", test_cb},
     // 添加更多项...
 };
 
 static menu_item_t menu_items_zh[] = {
-    {"遥测", telemetry_cb},   {"图传", image_transfer_cb}, {"串口", serial_display_cb},
-    {"校准", calibration_cb}, {"游戏", game_cb},           {"设置", settings_cb},
-    {"测试", test_cb}};
+    {"图传", image_transfer_cb}, 
+    {"串口", serial_display_cb},
+    {"遥测", telemetry_cb},   
+    {"游戏", game_cb},
+    {"校准", calibration_cb},           
+    {"设置", settings_cb}
+    // {"测试", test_cb}
+};
 
 static void btn_event_cb(lv_event_t* e) {
     lv_obj_t* btn = lv_event_get_target(e);
@@ -469,6 +474,11 @@ void ui_main_menu_create(lv_obj_t* parent) {
         theme_apply_to_button(btn, true);
 
         lv_obj_t* label = lv_label_create(btn);
+        if(current_language == LANG_CHINESE) {
+            lv_font_t* zh_font = get_loaded_font();
+            lv_obj_set_style_text_font(label, zh_font, 0); // 使用自定义中文字体
+        } else
+            lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
         lv_label_set_text(label, current_menu_items[i].text);
         theme_apply_to_label(label, false); // 应用主题到标签
         lv_obj_center(label);
