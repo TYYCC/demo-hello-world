@@ -11,6 +11,7 @@
 #include "game.h"
 #include "settings_manager.h"
 #include "ui.h"
+#include "my_font.h"
 #include "ui_state_manager.h"
 
 static const char* TAG = "UI_COMMON";
@@ -164,7 +165,8 @@ void ui_create_top_bar(lv_obj_t* parent, const char* title_text, bool show_setti
     // 创建标题
     lv_obj_t* title = lv_label_create(*title_container);
     lv_label_set_text(title, title_text);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    set_language_display(title);
+    // lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, 0);
 
     // Conditionally create the settings button
@@ -387,4 +389,20 @@ void ui_create_stateful_back_button(lv_obj_t* parent) {
     lv_obj_set_style_text_color(back_label, lv_color_hex(0xFFFFFF), 0); // 白色文字
     lv_obj_center(back_label);
 
+}
+
+// 全局语言设置
+ui_language_t g_current_language = LANG_ENGLISH;
+
+// 获取当前字体
+const lv_font_t* get_current_font(void) {
+    if (g_current_language == LANG_CHINESE) {
+        return get_loaded_font();
+    }
+    return &lv_font_montserrat_16;
+}
+
+const void set_language_display(lv_obj_t* obj) {
+    lv_font_t* font = get_current_font();
+    lv_obj_set_style_text_font(obj, font, 0);
 }

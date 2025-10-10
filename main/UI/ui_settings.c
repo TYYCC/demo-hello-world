@@ -16,11 +16,6 @@
 
 static const char* TAG = "UI_SETTINGS";
 
-// 语言设置 (定义在ui.h中)
-
-// 全局语言设置（临时改为英文，直到添加中文字体）
-static ui_language_t g_current_language = LANG_ENGLISH;
-
 // 语言文本定义
 typedef struct {
     const char* settings_title;
@@ -32,6 +27,7 @@ typedef struct {
     const char* chinese_text;
     const char* light_theme;
     const char* dark_theme;
+    const char* transfer_mode;
     const char* version_info;
     const char* language_changed;
     const char* wifi_settings_label;
@@ -49,6 +45,7 @@ static const ui_text_t english_text = {.settings_title = "SETTINGS",
                                        .chinese_text = "Chinese",
                                        .light_theme = "Light",
                                        .dark_theme = "Dark",
+                                       .transfer_mode = "Transfer Mode",
                                        .version_info = "ESP32-S3 Demo v1.0.0",
                                        .language_changed = "Language Changed!",
                                        .wifi_settings_label = "WiFi Settings",
@@ -65,6 +62,7 @@ static const ui_text_t chinese_text = {.settings_title = "设置",
                                        .chinese_text = "中文",
                                        .light_theme = "浅色",
                                        .dark_theme = "深色",
+                                       .transfer_mode = "图传模式",
                                        .version_info = "ESP32-S3 演示 v1.0.0",
                                        .language_changed = "语言已切换!",
                                        .wifi_settings_label = "无线网络设置",
@@ -74,19 +72,6 @@ static const ui_text_t chinese_text = {.settings_title = "设置",
 // 获取当前语言文本
 static const ui_text_t* get_current_text(void) {
     return (g_current_language == LANG_CHINESE) ? &chinese_text : &english_text;
-}
-
-// 获取当前字体
-static const lv_font_t* get_current_font(void) {
-    if (g_current_language == LANG_CHINESE) {
-        return get_loaded_font();
-    }
-    return &lv_font_montserrat_16;
-}
-
-static const void set_language_display(lv_obj_t* obj) {
-    lv_font_t* font = get_current_font();
-    lv_obj_set_style_text_font(obj, font, 0);
 }
 
 // NVS保存语言设置
@@ -102,7 +87,7 @@ static void save_language_setting(ui_language_t lang) {
 }
 
 // NVS读取语言设置
-static ui_language_t load_language_setting(void) {
+ui_language_t load_language_setting(void) {
     nvs_handle_t nvs_handle;
     uint8_t lang = LANG_ENGLISH;
     esp_err_t err = nvs_open("ui_settings", NVS_READONLY, &nvs_handle);
@@ -130,7 +115,7 @@ static void language_switch_cb(lv_event_t* e) {
     lv_obj_t* msgbox =
         lv_msgbox_create(screen, "Info", get_current_text()->language_changed, NULL, true);
     lv_obj_center(msgbox);
-    lv_obj_set_style_text_font(screen, get_current_font(), 0);
+    lv_obj_set_style_text_font(msgbox, get_current_font(), 0);
 
     ESP_LOGI(TAG, "Language switched to: %s", is_chinese ? "Chinese" : "English");
 }
@@ -154,17 +139,21 @@ static void auto_pairing_btn_cb(lv_event_t* e) {
 // 关于信息回调
 static void about_btn_cb(lv_event_t* e) {
     lv_obj_t* screen = lv_scr_act();
-    const char* about_msg = "ESP32-S3 Demo System\n\n"
-                            "Features:\n"
-                            "• LVGL GUI\n"
-                            "• WiFi Management\n"
-                            "• Power Management\n"
-                            "• Multi-language Support\n\n"
-                            "Hardware: ESP32-S3-N16R8\n"
-                            "Display: ST7789 240x282";
+    const char* en_about_msg =  "ESP32-S3 System\n\n"
+                                "Version: v2.62\n"
+                                "Hardware: ESP32-S3-N16R8\n"
+                                "Display: IPS 240x320";
+
+    const char* cn_about_msg =  "ESP32-S3 系统\n\n"
+                                "版本: v2.62\n"
+                                "硬件: ESP32-S3-N16R8\n"
+                                "显示屏: IPS 240x320";
+
+    const char* about_msg = (g_current_language == LANG_CHINESE) ? cn_about_msg : en_about_msg;
 
     lv_obj_t* msgbox = lv_msgbox_create(screen, "About", about_msg, NULL, true);
-    lv_obj_set_size(msgbox, 280, 200);
+    set_language_display(msgbox);
+    lv_obj_set_size(msgbox, 260, 200);
     lv_obj_center(msgbox);
 }
 
@@ -246,7 +235,6 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_obj_t* title_container;
     ui_create_top_bar(page_parent_container, text->settings_title, false, &top_bar_container,
                       &title_container, NULL);
-    set_language_display(top_bar_container);
 
     // 创建页面内容容器
     lv_obj_t* content_container;
@@ -281,9 +269,8 @@ void ui_settings_create(lv_obj_t* parent) {
 
     lv_obj_t* lang_label = lv_label_create(lang_row);
     lv_label_set_text(lang_label, text->language_label);
-    set_language_display(lang_label);
     theme_apply_to_label(lang_label, false);
-    set_language_display(lang_label);  
+    set_language_display(lang_label);
 
     lv_obj_t* lang_switch = lv_switch_create(lang_row);
     theme_apply_to_switch(lang_switch);
@@ -402,8 +389,9 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_obj_set_style_pad_gap(transfer_mode_group, 10, 0);
 
     lv_obj_t* transfer_mode_label = lv_label_create(transfer_mode_group);
-    lv_label_set_text(transfer_mode_label, "Transfer Mode:");
+    lv_label_set_text(transfer_mode_label, text->transfer_mode);
     theme_apply_to_label(transfer_mode_label, false);
+    set_language_display(transfer_mode_label);
 
     lv_obj_t* cb_container = lv_obj_create(transfer_mode_group);
     lv_obj_set_width(cb_container, lv_pct(100));
@@ -438,6 +426,7 @@ void ui_settings_create(lv_obj_t* parent) {
 
     lv_obj_t* wifi_label = lv_label_create(wifi_btn);
     lv_label_set_text(wifi_label, text->wifi_settings_label);
+    set_language_display(wifi_label);
     theme_apply_to_label(wifi_label, false);
     lv_obj_center(wifi_label);
     set_language_display(wifi_label);

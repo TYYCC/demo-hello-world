@@ -138,6 +138,13 @@ typedef enum {
     UI_EVENT_SETTINGS_CHANGED, // Event sent when settings are changed
 } ui_event_t;
 
+extern ui_language_t g_current_language;
+
+ui_language_t load_language_setting(void);
+
+const lv_font_t* get_current_font(void);
+const void set_language_display(lv_obj_t* obj);
+
 #ifdef __cplusplus
 }
 #endif
