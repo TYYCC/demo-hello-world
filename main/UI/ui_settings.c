@@ -219,8 +219,6 @@ static void transfer_mode_udp_cb(lv_event_t* e);
 
 // 创建设置界面
 void ui_settings_create(lv_obj_t* parent) {
-    // 加载保存的语言设置
-    g_current_language = load_language_setting();
     const ui_text_t* text = get_current_text();
 
     // 应用当前主题到屏幕
