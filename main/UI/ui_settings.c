@@ -34,9 +34,9 @@ typedef struct {
     const char* dark_theme;
     const char* version_info;
     const char* language_changed;
-    const char* wifi_settings_label; // 新增WiFi设置标签
-    const char* backlight_label;     // 新增背光标签
-    const char* auto_pairing_label;  // 自动配对标签
+    const char* wifi_settings_label;
+    const char* backlight_label;
+    const char* auto_pairing_label;
 } ui_text_t;
 
 // 英文文本
@@ -59,7 +59,7 @@ static const ui_text_t english_text = {.settings_title = "SETTINGS",
 static const ui_text_t chinese_text = {.settings_title = "设置",
                                        .language_label = "语言:",
                                        .theme_label = "主题:",
-                                       .about_label = "关于:",
+                                       .about_label = "关于本机",
                                        .back_button = "返回",
                                        .english_text = "英文",
                                        .chinese_text = "中文",
@@ -79,13 +79,14 @@ static const ui_text_t* get_current_text(void) {
 // 获取当前字体
 static const lv_font_t* get_current_font(void) {
     if (g_current_language == LANG_CHINESE) {
-        // 如果有中文字体，返回中文字体
-        if (is_font_loaded()) {
-            return get_loaded_font();
-        }
-        return &lv_font_montserrat_16; // 临时使用英文字体
+        return get_loaded_font();
     }
     return &lv_font_montserrat_16;
+}
+
+static const void set_language_display(lv_obj_t* obj) {
+    lv_font_t* font = get_current_font();
+    lv_obj_set_style_text_font(obj, font, 0);
 }
 
 // NVS保存语言设置
@@ -129,6 +130,7 @@ static void language_switch_cb(lv_event_t* e) {
     lv_obj_t* msgbox =
         lv_msgbox_create(screen, "Info", get_current_text()->language_changed, NULL, true);
     lv_obj_center(msgbox);
+    lv_obj_set_style_text_font(screen, get_current_font(), 0);
 
     ESP_LOGI(TAG, "Language switched to: %s", is_chinese ? "Chinese" : "English");
 }
@@ -244,6 +246,7 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_obj_t* title_container;
     ui_create_top_bar(page_parent_container, text->settings_title, false, &top_bar_container,
                       &title_container, NULL);
+    set_language_display(top_bar_container);
 
     // 创建页面内容容器
     lv_obj_t* content_container;
@@ -278,7 +281,9 @@ void ui_settings_create(lv_obj_t* parent) {
 
     lv_obj_t* lang_label = lv_label_create(lang_row);
     lv_label_set_text(lang_label, text->language_label);
+    set_language_display(lang_label);
     theme_apply_to_label(lang_label, false);
+    set_language_display(lang_label);  
 
     lv_obj_t* lang_switch = lv_switch_create(lang_row);
     theme_apply_to_switch(lang_switch);
@@ -291,6 +296,7 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_label_set_text(lang_status,
                       g_current_language == LANG_CHINESE ? text->chinese_text : text->english_text);
     theme_apply_to_label(lang_status, false);
+    set_language_display(lang_status);
 
     // --- 背光设置 ---
     lv_obj_t* backlight_group = lv_obj_create(content_container);
@@ -315,6 +321,7 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_obj_t* backlight_label = lv_label_create(backlight_row);
     lv_label_set_text(backlight_label, text->backlight_label);
     theme_apply_to_label(backlight_label, false);
+    set_language_display(backlight_label);
 
     lv_obj_t* backlight_value_label = lv_label_create(backlight_row);
     uint8_t current_backlight = settings_get_backlight();
@@ -341,6 +348,7 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_obj_t* theme_label = lv_label_create(theme_group);
     lv_label_set_text(theme_label, text->theme_label);
     theme_apply_to_label(theme_label, false);
+    set_language_display(theme_label);
 
     lv_obj_t* theme_dropdown = lv_dropdown_create(theme_group);
     lv_obj_set_width(theme_dropdown, lv_pct(100));
@@ -432,6 +440,7 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_label_set_text(wifi_label, text->wifi_settings_label);
     theme_apply_to_label(wifi_label, false);
     lv_obj_center(wifi_label);
+    set_language_display(wifi_label);
 
     // --- 自动配对 ---
     lv_obj_t* pairing_btn = lv_btn_create(content_container);
@@ -444,6 +453,7 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_label_set_text(pairing_label, text->auto_pairing_label);
     theme_apply_to_label(pairing_label, false);
     lv_obj_center(pairing_label);
+    set_language_display(pairing_label);
 
     // --- 关于 ---
     lv_obj_t* about_btn = lv_btn_create(content_container);
@@ -456,6 +466,7 @@ void ui_settings_create(lv_obj_t* parent) {
     lv_label_set_text(about_label, text->about_label);
     theme_apply_to_label(about_label, false);
     lv_obj_center(about_label);
+    set_language_display(about_label);
 
     ESP_LOGI(TAG, "Settings UI created with language: %s",
              g_current_language == LANG_CHINESE ? "Chinese" : "English");

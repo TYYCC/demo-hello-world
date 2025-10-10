@@ -456,6 +456,7 @@ void ui_main_menu_create(lv_obj_t* parent) {
     lv_obj_set_style_opa(g_menu_container, LV_OPA_0, LV_PART_SCROLLBAR);
 
     // 创建按钮 - 使用莫兰迪色系
+    lv_font_t* zh_font = get_loaded_font();
     for (int i = 0; i < num_items; i++) {
         lv_obj_t* btn = lv_obj_create(g_menu_container);
         lv_obj_set_size(btn, 200, 54);                       // 增加按钮高度到60像素
@@ -474,14 +475,13 @@ void ui_main_menu_create(lv_obj_t* parent) {
         theme_apply_to_button(btn, true);
 
         lv_obj_t* label = lv_label_create(btn);
-        if(current_language == LANG_CHINESE) {
-            lv_font_t* zh_font = get_loaded_font();
-            lv_obj_set_style_text_font(label, zh_font, 0); // 使用自定义中文字体
-        } else
-            lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
         lv_label_set_text(label, current_menu_items[i].text);
         theme_apply_to_label(label, false); // 应用主题到标签
         lv_obj_center(label);
+        if(current_language == LANG_CHINESE)
+            lv_obj_set_style_text_font(label, zh_font, 0); // 使用自定义中文字体
+        else
+            lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
     }
 
     // 创建时间更新定时器（每分钟检查一次后台更新）
