@@ -7,6 +7,38 @@
 #include "ui.h"
 #include "theme_manager.h"
 
+typedef struct {
+    const char* Initializing;
+    const char* Loading_Components;
+    const char* Starting_Services;
+    const char* Configuring_Hardware;
+    const char* Almost_Ready;
+    const char* Finalizing;
+} ui_animation_text_t;
+
+ui_animation_text_t chinese_text = {
+    .Initializing = "正在初始化系统",
+    .Loading_Components = "正在加载组件",
+    .Starting_Services = "正在启动服务",
+    .Configuring_Hardware = "正在配置硬件",
+    .Almost_Ready = "即将完成",
+    .Finalizing = "正在收尾"
+};
+
+ui_animation_text_t english_text = {
+    .Initializing = "Initializing System",
+    .Loading_Components = "Loading Components",
+    .Starting_Services = "Starting Services",
+    .Configuring_Hardware = "Configuring Hardware",
+    .Almost_Ready = "Almost Ready",
+    .Finalizing = "Finalizing"
+};
+
+// 获取当前语言文本
+static const ui_animation_text_t* get_current_animation_text(void) {
+    return (g_current_language == LANG_CHINESE) ? &chinese_text : &english_text;
+}
+
 // 全局变量来存储回调函数和需要清理的UI元素
 static ui_start_anim_finished_cb_t g_finished_cb = NULL;
 static lv_obj_t* g_anim_arc = NULL;
@@ -29,19 +61,22 @@ static void anim_status_text_timer_cb(lv_timer_t* timer) {
     static uint32_t call_count = 0;
     call_count++;
 
+    const ui_animation_text_t* text = get_current_animation_text();
+
     if (call_count <= 2) {
-        lv_label_set_text(label, "Initializing System...");
+        lv_label_set_text(label, text->Initializing);
     } else if (call_count <= 4) {
-        lv_label_set_text(label, "Loading Components...");
+        lv_label_set_text(label, text->Loading_Components);
     } else if (call_count <= 6) {
-        lv_label_set_text(label, "Starting Services...");
+        lv_label_set_text(label, text->Starting_Services);
     } else if (call_count <= 8) {
-        lv_label_set_text(label, "Configuring Hardware...");
+        lv_label_set_text(label, text->Configuring_Hardware);
     } else if (call_count <= 10) {
-        lv_label_set_text(label, "Almost Ready...");
+        lv_label_set_text(label, text->Almost_Ready);
     } else {
-        lv_label_set_text(label, "Finalizing...");
+        lv_label_set_text(label, text->Finalizing);
     }
+    set_language_display(label);
 }
 
 static void all_anims_finished_cb(lv_anim_t* a) {
@@ -136,10 +171,14 @@ void ui_start_animation_create(lv_obj_t* parent, ui_start_anim_finished_cb_t fin
 
     // 4. 创建状态文本
     lv_obj_t* status_label = lv_label_create(parent);
-    lv_label_set_text(status_label, "Initializing...");
+    if(get_current_animation_text() == &chinese_text)
+        lv_label_set_text(status_label, "正在初始化系统...");
+    else
+        lv_label_set_text(status_label, "Initializing...");
     lv_obj_set_style_text_color(status_label, lv_color_hex(0x666666), 0); // 中灰色
     lv_obj_set_style_text_font(status_label, &lv_font_montserrat_14, 0);
     lv_obj_align_to(status_label, bar, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
+    set_language_display(status_label);
 
     // 5. 创建版本信息
     lv_obj_t* version_label = lv_label_create(parent);
