@@ -101,12 +101,14 @@ static void update_wifi_info(void) {
         lv_label_set_text_fmt(g_status_label, "%s: %s", text->status_label, text->status_connected);
         break;
     }
+    set_language_display(g_status_label);
 
     if (info.state == WIFI_STATE_CONNECTED) {
         lv_label_set_text_fmt(g_ssid_label, "%s: %s", text->ssid_label, info.ssid);
     } else {
         lv_label_set_text_fmt(g_ssid_label, "%s: N/A", text->ssid_label);
     }
+    set_language_display(g_ssid_label);
 }
 
 /**
@@ -174,9 +176,9 @@ static void details_btn_event_cb(lv_event_t* e) {
              text->status_label, status_str, text->ssid_label,
              info.state == WIFI_STATE_CONNECTED ? (char*)info.ssid : "N/A", text->ip_label,
              info.ip_addr, text->mac_label, mac_str);
-
     lv_obj_t* msgbox = lv_msgbox_create(screen, text->details_title, msg_buffer, NULL, true);
     lv_obj_center(msgbox);
+    set_language_display(msgbox);
 }
 
 /**
@@ -205,6 +207,7 @@ static void power_slider_event_cb(lv_event_t* e) {
     const wifi_text_t* text = get_wifi_text(); // 获取当前语言文本
 
     lv_label_set_text_fmt(power_label, "%s: %d dBm", text->tx_power, (int)power_dbm);
+    set_language_display(power_label);
     wifi_manager_set_power((int8_t)power_dbm);
 }
 
@@ -274,6 +277,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_t* switch_label = lv_label_create(switch_item);
     lv_label_set_text(switch_label, text->enable_wifi);
     theme_apply_to_label(switch_label, false);
+    set_language_display(switch_label);
 
     lv_obj_t* wifi_switch = lv_switch_create(switch_item);
     theme_apply_to_switch(wifi_switch);
@@ -314,6 +318,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_t* dropdown_title_label = lv_label_create(dropdown_container_item);
     lv_label_set_text(dropdown_title_label, text->saved_networks);
     theme_apply_to_label(dropdown_title_label, false);
+    set_language_display(dropdown_title_label);
 
     lv_obj_t* wifi_dropdown = lv_dropdown_create(dropdown_container_item);
     lv_obj_set_width(wifi_dropdown, lv_pct(100));
@@ -360,9 +365,10 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_add_event_cb(details_btn, details_btn_event_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t* details_btn_label = lv_label_create(details_btn);
-    lv_label_set_text_fmt(details_btn_label, "%s %s", LV_SYMBOL_EYE_OPEN, text->details_button);
+    lv_label_set_text_fmt(details_btn_label, "%s", text->details_button);
     lv_obj_center(details_btn_label);
     theme_apply_to_label(details_btn_label, false);
+    set_language_display(details_btn_label);
 
     // 初始化UI状态
     wifi_manager_info_t current_info = wifi_manager_get_info();
@@ -376,6 +382,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     wifi_manager_get_power(&power_dbm);
     lv_slider_set_value(power_slider, power_dbm, LV_ANIM_OFF);
     lv_label_set_text_fmt(power_val_label, "%s: %d dBm", text->tx_power, power_dbm);
+    set_language_display(power_val_label);
 
     // 创建并启动UI更新定时器
     g_update_timer = lv_timer_create(ui_update_timer_cb, 500, NULL);

@@ -50,6 +50,7 @@ void lvgl_main_task(void* pvParameters) {
     ESP_ERROR_CHECK(esp_timer_start_periodic(periodic_timer, 16666)); // 16.666ms周期
     ESP_LOGI(TAG, "LVGL tick timer started (10ms period)");
 
+    g_current_language = load_language_setting(); // 加载语言设置
     // 创建并启动开机动画，动画结束后调用 show_main_menu_cb
     ui_start_animation_create(lv_scr_act(), show_main_menu_cb);
 

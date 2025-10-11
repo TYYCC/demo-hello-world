@@ -25,6 +25,44 @@
 #include <string.h>
 #include <stdio.h>
 
+// 语言文本定义
+typedef struct {
+    const char* title;
+    const char* status_stopped;
+    const char* ip_acquiring;
+    const char* ssid_not_connected;
+    const char* ip_label;
+    const char* ssid_label;
+    const char* fps_label;
+} ui_img_transfer_text_t;
+
+// 英文文本
+static const ui_img_transfer_text_t english_text = {
+    .title = "Image Transfer",
+    .status_stopped = "Status: Stopped",
+    .ip_acquiring = "Acquiring...",
+    .ssid_not_connected = "SSID: Not Connected",
+    .ip_label = "IP: %s",
+    .ssid_label = "SSID: %s",
+    .fps_label = "FPS: %.1f",
+};
+
+// 中文文本
+static const ui_img_transfer_text_t chinese_text = {
+    .title = "图像传输",
+    .status_stopped = "状态: 已停止",
+    .ip_acquiring = "获取中...",
+    .ssid_not_connected = "SSID: 未连接",
+    .ip_label = "IP: %s",
+    .ssid_label = "SSID: %s",
+    .fps_label = "帧率: %.1f",
+};
+
+// 获取当前语言文本
+static const ui_img_transfer_text_t* get_current_text(void) {
+    return (ui_get_current_language() == LANG_CHINESE) ? &chinese_text : &english_text;
+}
+
 static const char* TAG = "UI_IMG_TRANSFER";
 
 // UI Objects
@@ -79,6 +117,8 @@ void ui_image_transfer_create(lv_obj_t* parent) {
     }
     ESP_LOGI(TAG, "Creating Image Transfer UI");
 
+    const ui_img_transfer_text_t* text = get_current_text();
+
     // Apply theme to the screen
     theme_apply_to_screen(parent);
 
@@ -89,7 +129,7 @@ void ui_image_transfer_create(lv_obj_t* parent) {
     lv_obj_t* top_bar_container;
     lv_obj_t* title_container;
     lv_obj_t* settings_btn = NULL; // This will hold the button created by ui_create_top_bar
-    ui_create_top_bar(s_page_parent, "Image Transfer", true, &top_bar_container, &title_container,
+    ui_create_top_bar(s_page_parent, text->title, true, &top_bar_container, &title_container,
                       &settings_btn);
 
     // Now, configure the button that was created for us in ui_common
