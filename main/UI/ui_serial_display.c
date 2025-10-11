@@ -19,6 +19,28 @@
 #include "serial_display.h"
 #include "ui.h"
 
+
+typedef struct {
+    const char* title;
+    const char* wait_text;
+} ui_serial_display_text_t;
+
+static const ui_serial_display_text_t english_text = {
+    .title = "Serial Display",
+    .wait_text = "Waiting for connection..."
+};
+
+static const ui_serial_display_text_t chinese_text = {
+    .title = "远程串口",
+    .wait_text = "等待连接..."
+};
+
+
+static const ui_serial_display_text_t* get_current_serial_display_text(void) {
+    return (g_current_language == LANG_CHINESE) ? &chinese_text : &english_text;
+}
+
+
 static const char* TAG = "UI_SERIAL_DISPLAY";
 
 // 最大保存行数
@@ -311,6 +333,7 @@ void ui_serial_display_create(lv_obj_t* parent) {
         ESP_LOGW(TAG, "Serial display already exists, cleaning up first");
         ui_serial_display_destroy();
     }
+    const ui_serial_display_text_t* text = get_current_serial_display_text();
 
     // 初始化串口显示模块
     esp_err_t ret = serial_display_init();
@@ -348,7 +371,7 @@ void ui_serial_display_create(lv_obj_t* parent) {
     // 2. 创建顶部栏容器（包含返回按钮和标题）
     lv_obj_t* top_bar_container;
     lv_obj_t* title_container;
-    ui_create_top_bar(page_parent_container, "Serial Display", false, &top_bar_container, &title_container, NULL);
+    ui_create_top_bar(page_parent_container, text->title, false, &top_bar_container, &title_container, NULL);
 
     // 替换顶部栏的返回按钮回调为自定义回调
     lv_obj_t* back_btn = lv_obj_get_child(top_bar_container, 0); // 获取返回按钮
@@ -367,20 +390,14 @@ void ui_serial_display_create(lv_obj_t* parent) {
     lv_obj_set_size(g_label, 240, 290);
     lv_obj_align(g_label, LV_ALIGN_CENTER, 0, 10);
     lv_label_set_long_mode(g_label, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(g_label, "Waiting for data...");
+    lv_label_set_text(g_label, text->wait_text);
     lv_obj_set_style_text_color(g_label, theme_get_color(theme_get_current_theme()->colors.text_primary), 0);
     lv_obj_set_style_bg_color(g_label, theme_get_color(theme_get_current_theme()->colors.surface), 0);
-
-    // 检查并应用中文字体
-    if (is_font_loaded()) {
-        lv_obj_set_style_text_font(g_label, get_loaded_font(), 0);
-    } else {
-        // Fallback to default font if custom font is not loaded
-        lv_obj_set_style_text_font(g_label, &lv_font_montserrat_14, 0);
-    }
+    set_language_display(g_label);
 
     // 添加滚动事件
     lv_obj_add_event_cb(g_label, scroll_event_cb, LV_EVENT_SCROLL, NULL);
+
 
     // 5. 创建清空按钮 - 直接放在内容区域右下角
     g_clear_btn = lv_btn_create(content_container);

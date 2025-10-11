@@ -172,12 +172,11 @@ void ui_start_animation_create(lv_obj_t* parent, ui_start_anim_finished_cb_t fin
     // 4. 创建状态文本
     lv_obj_t* status_label = lv_label_create(parent);
     if(get_current_animation_text() == &chinese_text)
-        lv_label_set_text(status_label, "正在初始化系统...");
+        lv_label_set_text(status_label, "正在初始化系统");
     else
         lv_label_set_text(status_label, "Initializing...");
     lv_obj_set_style_text_color(status_label, lv_color_hex(0x666666), 0); // 中灰色
-    lv_obj_set_style_text_font(status_label, &lv_font_montserrat_14, 0);
-    lv_obj_align_to(status_label, bar, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
+    lv_obj_align_to(status_label, bar, LV_ALIGN_OUT_BOTTOM_RIGHT, 0, 8);
     set_language_display(status_label);
 
     // 5. 创建版本信息
