@@ -1,8 +1,10 @@
 #include "esp_log.h" // 引入日志功能
 #include "ui.h"
-#include "wifi_manager.h" // 引入WiFi管理器头文件
-#include <stdio.h>        // 为了使用 snprintf
-#include <string.h>       // 为了使用 strcat 等字符串函数
+#include "ui_numeric_keypad.h"
+#include "wifi_manager.h" 
+#include <stdio.h>
+#include <string.h>       
+#include <stdint.h>
 
 // 为了实现返回功能，需要前向声明设置菜单的创建函数
 void ui_settings_create(lv_obj_t* parent);
@@ -13,6 +15,11 @@ typedef struct {
     const char* enable_wifi;
     const char* tx_power;
     const char* saved_networks;
+    const char* available_networks;
+    const char* refresh_button;
+    const char* scan_in_progress;
+    const char* scan_no_networks;
+    const char* scan_result_fmt;
     const char* details_button;
     const char* details_title;
     const char* status_label;
@@ -23,6 +30,8 @@ typedef struct {
     const char* status_disconnected;
     const char* status_connecting;
     const char* status_connected;
+    const char* keypad_title_fmt;
+    const char* saved_tag;
 } wifi_text_t;
 
 // 英文文本
@@ -31,6 +40,11 @@ static const wifi_text_t wifi_english_text = {
     .enable_wifi = "Enable WiFi",
     .tx_power = "Tx Power",
     .saved_networks = "Saved Networks",
+    .available_networks = "Available Networks",
+    .refresh_button = "Scan",
+    .scan_in_progress = "Scanning...",
+    .scan_no_networks = "Tap scan to search for networks",
+    .scan_result_fmt = "%d networks found",
     .details_button = "Details",
     .details_title = "Network Details",
     .status_label = "Status",
@@ -41,6 +55,8 @@ static const wifi_text_t wifi_english_text = {
     .status_disconnected = "Disconnected",
     .status_connecting = "Connecting...",
     .status_connected = "Connected",
+    .keypad_title_fmt = "Enter password for %s",
+    .saved_tag = "Saved",
 };
 
 // 中文文本
@@ -49,6 +65,11 @@ static const wifi_text_t wifi_chinese_text = {
     .enable_wifi = "启用无线网络",
     .tx_power = "发射功率",
     .saved_networks = "已存网络",
+    .available_networks = "可用网络",
+    .refresh_button = "扫描",
+    .scan_in_progress = "正在扫描...",
+    .scan_no_networks = "点击扫描按钮搜索网络",
+    .scan_result_fmt = "找到 %d 个网络",
     .details_button = "详细信息",
     .details_title = "网络详情",
     .status_label = "状态",
@@ -59,6 +80,8 @@ static const wifi_text_t wifi_chinese_text = {
     .status_disconnected = "已断开",
     .status_connecting = "连接中...",
     .status_connected = "已连接",
+    .keypad_title_fmt = "输入 %s 的密码",
+    .saved_tag = "已保存",
 };
 
 // 获取当前语言文本
@@ -66,13 +89,46 @@ static const wifi_text_t* get_wifi_text(void) {
     return (ui_get_current_language() == LANG_CHINESE) ? &wifi_chinese_text : &wifi_english_text;
 }
 
+#define UI_WIFI_MAX_SCAN_RESULTS 32
+#define UI_WIFI_MAX_SAVED_OPTIONS 32
+
+static const char* TAG = "UI_WIFI";
+
 // UI元素句柄
 static lv_obj_t* g_status_label;
 static lv_obj_t* g_ssid_label; // 新增SSID标签
+static lv_obj_t* g_scan_status_label;
+static lv_obj_t* g_available_list;
+static lv_obj_t* g_scan_refresh_btn;
+static lv_obj_t* g_saved_dropdown;
+static lv_obj_t* g_wifi_switch_obj;
 static lv_timer_t* g_update_timer;
 static bool g_wifi_ui_initialized = false;
+static uint32_t g_last_scan_version = UINT32_MAX;
+static int32_t g_last_saved_network_count = -1;
 
 static void wifi_dropdown_event_cb(lv_event_t* e);
+static void wifi_refresh_btn_event_cb(lv_event_t* e);
+static void wifi_network_button_event_cb(lv_event_t* e);
+static void wifi_network_button_delete_cb(lv_event_t* e);
+static void wifi_password_entered_cb(const char* password, void* user_data);
+static void wifi_password_keypad_delete_cb(lv_event_t* e);
+static void rebuild_available_network_list(void);
+static void update_scan_section(void);
+static void rebuild_saved_network_dropdown(void);
+static void refresh_saved_network_dropdown_if_needed(void);
+static void trigger_wifi_scan(bool show_error);
+static void wifi_manager_ui_event_cb(void);
+
+typedef struct {
+    char ssid[33];
+    wifi_auth_mode_t authmode;
+    bool is_saved;
+} wifi_ap_button_data_t;
+
+typedef struct {
+    char ssid[33];
+} wifi_connect_request_t;
 
 /**
  * @brief 更新WiFi信息显示
@@ -109,6 +165,271 @@ static void update_wifi_info(void) {
         lv_label_set_text_fmt(g_ssid_label, "%s: N/A", text->ssid_label);
     }
     set_language_display(g_ssid_label);
+
+    if (g_wifi_switch_obj) {
+        bool should_be_checked = (info.state != WIFI_STATE_DISABLED);
+        bool currently_checked = lv_obj_has_state(g_wifi_switch_obj, LV_STATE_CHECKED);
+        if (should_be_checked && !currently_checked) {
+            lv_obj_add_state(g_wifi_switch_obj, LV_STATE_CHECKED);
+        } else if (!should_be_checked && currently_checked) {
+            lv_obj_clear_state(g_wifi_switch_obj, LV_STATE_CHECKED);
+        }
+    }
+}
+
+static void rebuild_available_network_list(void) {
+    if (!g_available_list) {
+        return;
+    }
+
+    lv_obj_clean(g_available_list);
+
+    wifi_manager_scan_result_t results[UI_WIFI_MAX_SCAN_RESULTS];
+    size_t count = wifi_manager_get_scan_results(results, UI_WIFI_MAX_SCAN_RESULTS);
+    if (count == 0) {
+        return;
+    }
+
+    const wifi_text_t* text = get_wifi_text();
+
+    for (size_t i = 0; i < count; i++) {
+        wifi_ap_button_data_t* data = lv_mem_alloc(sizeof(wifi_ap_button_data_t));
+        if (!data) {
+            ESP_LOGW(TAG, "Failed to allocate memory for AP item");
+            break;
+        }
+        memset(data, 0, sizeof(*data));
+        strlcpy(data->ssid, results[i].ssid, sizeof(data->ssid));
+        data->authmode = results[i].authmode;
+        data->is_saved = wifi_manager_get_saved_password(results[i].ssid) != NULL;
+
+        lv_obj_t* item_btn = lv_btn_create(g_available_list);
+        lv_obj_set_width(item_btn, LV_PCT(100));
+        lv_obj_set_height(item_btn, 52);
+        lv_obj_set_flex_flow(item_btn, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(item_btn, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_all(item_btn, 10, 0);
+        lv_obj_set_style_pad_gap(item_btn, 8, 0);
+        lv_obj_set_style_bg_opa(item_btn, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(item_btn, 0, 0);
+        theme_apply_to_button(item_btn, false);
+
+        lv_obj_add_event_cb(item_btn, wifi_network_button_event_cb, LV_EVENT_CLICKED, data);
+        lv_obj_add_event_cb(item_btn, wifi_network_button_delete_cb, LV_EVENT_DELETE, data);
+
+        lv_obj_t* name_label = lv_label_create(item_btn);
+        lv_label_set_text(name_label, results[i].ssid);
+        theme_apply_to_label(name_label, false);
+        lv_obj_set_flex_grow(name_label, 1);
+
+        char detail_text[96];
+        const char* lock_symbol = (results[i].authmode == WIFI_AUTH_OPEN) ? "" : LV_SYMBOL_BARS " ";
+        if (data->is_saved) {
+            snprintf(detail_text, sizeof(detail_text), "%s%s %d dBm · %s", lock_symbol,
+                     LV_SYMBOL_WIFI, (int)results[i].rssi, text->saved_tag);
+        } else {
+            snprintf(detail_text, sizeof(detail_text), "%s%s %d dBm", lock_symbol,
+                     LV_SYMBOL_WIFI, (int)results[i].rssi);
+        }
+
+        lv_obj_t* detail_label = lv_label_create(item_btn);
+        lv_label_set_text(detail_label, detail_text);
+        theme_apply_to_label(detail_label, false);
+    }
+}
+
+static void update_scan_section(void) {
+    if (!g_scan_status_label) {
+        return;
+    }
+
+    const wifi_text_t* text = get_wifi_text();
+    wifi_manager_info_t info = wifi_manager_get_info();
+
+    if (info.state == WIFI_STATE_DISABLED) {
+        lv_label_set_text(g_scan_status_label, text->status_disabled);
+        set_language_display(g_scan_status_label);
+        if (g_scan_refresh_btn) {
+            lv_obj_add_state(g_scan_refresh_btn, LV_STATE_DISABLED);
+        }
+        if (g_available_list) {
+            lv_obj_add_flag(g_available_list, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clean(g_available_list);
+        }
+        return;
+    }
+
+    bool scanning = wifi_manager_is_scanning();
+    if (g_scan_refresh_btn) {
+        if (scanning) {
+            lv_obj_add_state(g_scan_refresh_btn, LV_STATE_DISABLED);
+        } else {
+            lv_obj_clear_state(g_scan_refresh_btn, LV_STATE_DISABLED);
+        }
+    }
+    if (g_available_list) {
+        lv_obj_clear_flag(g_available_list, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (scanning) {
+        lv_label_set_text(g_scan_status_label, text->scan_in_progress);
+    } else {
+        size_t count = wifi_manager_get_scan_result_count();
+        if (count == 0) {
+            lv_label_set_text(g_scan_status_label, text->scan_no_networks);
+        } else {
+            lv_label_set_text_fmt(g_scan_status_label, text->scan_result_fmt, (int)count);
+        }
+    }
+    set_language_display(g_scan_status_label);
+
+    uint32_t version = wifi_manager_get_scan_results_version();
+    if (version != g_last_scan_version) {
+        g_last_scan_version = version;
+        rebuild_available_network_list();
+    }
+}
+
+static void refresh_saved_network_dropdown_if_needed(void) {
+    if (!g_saved_dropdown) {
+        return;
+    }
+
+    int32_t total_count = wifi_manager_get_wifi_list_size();
+    if (total_count != g_last_saved_network_count) {
+        rebuild_saved_network_dropdown();
+    }
+}
+
+static void rebuild_saved_network_dropdown(void) {
+    if (!g_saved_dropdown) {
+        return;
+    }
+
+    int32_t total_count = wifi_manager_get_wifi_list_size();
+    g_last_saved_network_count = total_count;
+
+    if (total_count <= 0) {
+        lv_dropdown_set_options(g_saved_dropdown, "");
+        return;
+    }
+
+    int32_t count = total_count;
+    if (count > UI_WIFI_MAX_SAVED_OPTIONS) {
+        count = UI_WIFI_MAX_SAVED_OPTIONS;
+    }
+
+    size_t buffer_len = (size_t)count * 34 + 1;
+    char* options = lv_mem_alloc(buffer_len);
+    if (!options) {
+        ESP_LOGW(TAG, "Failed to allocate dropdown buffer");
+        return;
+    }
+    options[0] = '\0';
+
+    for (int32_t i = 0; i < count; i++) {
+        const char* ssid = wifi_manager_get_wifi_ssid_by_index(i);
+        if (!ssid) {
+            continue;
+        }
+        if (i > 0) {
+            strlcat(options, "\n", buffer_len);
+        }
+        strlcat(options, ssid, buffer_len);
+    }
+
+    lv_dropdown_set_options(g_saved_dropdown, options);
+    lv_mem_free(options);
+}
+
+static void trigger_wifi_scan(bool show_error) {
+    if (wifi_manager_is_scanning()) {
+        return;
+    }
+
+    g_last_scan_version = UINT32_MAX;
+    esp_err_t err = wifi_manager_start_scan(false);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "WiFi scan start failed: %s", esp_err_to_name(err));
+        if (show_error) {
+            char msg[96];
+            snprintf(msg, sizeof(msg), "Scan failed: %s", esp_err_to_name(err));
+            lv_obj_t* msgbox = lv_msgbox_create(lv_scr_act(), get_wifi_text()->title, msg, NULL, true);
+            lv_obj_center(msgbox);
+            set_language_display(msgbox);
+        }
+        return;
+    }
+
+    update_scan_section();
+}
+
+static void wifi_manager_ui_event_cb(void) {
+    g_last_scan_version = UINT32_MAX;
+    g_last_saved_network_count = -1;
+}
+
+static void wifi_refresh_btn_event_cb(lv_event_t* e) {
+    (void)e;
+    trigger_wifi_scan(true);
+}
+
+static void wifi_network_button_delete_cb(lv_event_t* e) {
+    wifi_ap_button_data_t* data = lv_event_get_user_data(e);
+    if (data) {
+        lv_mem_free(data);
+    }
+}
+
+static void wifi_network_button_event_cb(lv_event_t* e) {
+    wifi_ap_button_data_t* data = lv_event_get_user_data(e);
+    if (!data) {
+        return;
+    }
+
+    if (data->authmode == WIFI_AUTH_OPEN) {
+        wifi_manager_connect_with_password(data->ssid, "");
+        return;
+    }
+
+    const wifi_text_t* text = get_wifi_text();
+    const char* saved_password = wifi_manager_get_saved_password(data->ssid);
+
+    wifi_connect_request_t* request = lv_mem_alloc(sizeof(wifi_connect_request_t));
+    if (!request) {
+        ESP_LOGW(TAG, "Failed to allocate connect request");
+        return;
+    }
+    memset(request, 0, sizeof(*request));
+    strlcpy(request->ssid, data->ssid, sizeof(request->ssid));
+
+    char title[96];
+    snprintf(title, sizeof(title), text->keypad_title_fmt, data->ssid);
+
+    lv_obj_t* keypad = ui_numeric_keypad_create(lv_scr_act(), title, saved_password,
+                                                wifi_password_entered_cb, request);
+    if (!keypad) {
+        lv_mem_free(request);
+        return;
+    }
+
+    lv_obj_add_event_cb(keypad, wifi_password_keypad_delete_cb, LV_EVENT_DELETE, request);
+}
+
+static void wifi_password_entered_cb(const char* password, void* user_data) {
+    wifi_connect_request_t* request = (wifi_connect_request_t*)user_data;
+    if (!request) {
+        return;
+    }
+    wifi_manager_connect_with_password(request->ssid, password);
+}
+
+static void wifi_password_keypad_delete_cb(lv_event_t* e) {
+    wifi_connect_request_t* request = lv_event_get_user_data(e);
+    if (request) {
+        lv_mem_free(request);
+    }
 }
 
 /**
@@ -116,9 +437,14 @@ static void update_wifi_info(void) {
  * @param timer
  */
 static void ui_update_timer_cb(lv_timer_t* timer) {
-    if (g_wifi_ui_initialized) {
-        update_wifi_info();
+    (void)timer;
+    if (!g_wifi_ui_initialized) {
+        return;
     }
+
+    update_wifi_info();
+    update_scan_section();
+    refresh_saved_network_dropdown_if_needed();
 }
 
 /**
@@ -130,6 +456,14 @@ static void ui_wifi_settings_cleanup(lv_event_t* e) {
         lv_timer_del(g_update_timer);
         g_update_timer = NULL;
     }
+    wifi_manager_register_event_callback(NULL);
+    g_scan_status_label = NULL;
+    g_available_list = NULL;
+    g_scan_refresh_btn = NULL;
+    g_saved_dropdown = NULL;
+    g_wifi_switch_obj = NULL;
+    g_last_scan_version = UINT32_MAX;
+    g_last_saved_network_count = -1;
     g_wifi_ui_initialized = false;
     // The parent's children are cleaned by LVGL automatically.
 }
@@ -187,11 +521,25 @@ static void details_btn_event_cb(lv_event_t* e) {
  */
 static void wifi_switch_event_cb(lv_event_t* e) {
     lv_obj_t* switcher = lv_event_get_target(e);
+    wifi_manager_info_t info = wifi_manager_get_info();
 
     if (lv_obj_has_state(switcher, LV_STATE_CHECKED)) {
-        wifi_manager_start();
+        if (info.state == WIFI_STATE_DISABLED) {
+            esp_err_t err = wifi_manager_start();
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(err));
+                lv_obj_clear_state(switcher, LV_STATE_CHECKED);
+                return;
+            }
+        }
+        trigger_wifi_scan(false);
     } else {
         wifi_manager_stop();
+        if (g_available_list) {
+            lv_obj_clean(g_available_list);
+        }
+        g_last_scan_version = UINT32_MAX;
+        update_scan_section();
     }
     update_wifi_info();
 }
@@ -220,6 +568,8 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     const wifi_text_t* text = get_wifi_text();
 
     theme_apply_to_screen(parent);
+
+    wifi_manager_register_event_callback(wifi_manager_ui_event_cb);
 
     // 1. 创建页面父级容器
     lv_obj_t* page_parent_container;
@@ -258,9 +608,10 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
 
     // WiFi容器标题
     lv_obj_t* wifi_title = lv_label_create(wifi_container);
-    lv_label_set_text_fmt(wifi_title, "%s %s", LV_SYMBOL_WIFI, "WiFi Settings");
+    lv_label_set_text_fmt(wifi_title, "%s %s", LV_SYMBOL_WIFI, text->title);
     theme_apply_to_label(wifi_title, false);
     lv_obj_set_style_text_color(wifi_title, lv_palette_main(LV_PALETTE_BLUE), 0);
+    set_language_display(wifi_title);
 
     // --- 1. WiFi开关 ---
     lv_obj_t* switch_item = lv_obj_create(wifi_container);
@@ -282,6 +633,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_t* wifi_switch = lv_switch_create(switch_item);
     theme_apply_to_switch(wifi_switch);
     lv_obj_add_event_cb(wifi_switch, wifi_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    g_wifi_switch_obj = wifi_switch;
 
     // --- 2. WiFi功率控制 ---
     lv_obj_t* slider_container_item = lv_obj_create(wifi_container);
@@ -304,7 +656,51 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_add_event_cb(power_slider, power_slider_event_cb, LV_EVENT_VALUE_CHANGED,
                         power_val_label);
 
-    // --- 3. WiFi连接列表 ---
+    // --- 3. 扫描与可用网络 ---
+    lv_obj_t* scan_header = lv_obj_create(wifi_container);
+    lv_obj_set_width(scan_header, lv_pct(100));
+    lv_obj_set_height(scan_header, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(scan_header, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(scan_header, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_bg_opa(scan_header, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(scan_header, 0, 0);
+    lv_obj_clear_flag(scan_header, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* available_label = lv_label_create(scan_header);
+    lv_label_set_text(available_label, text->available_networks);
+    theme_apply_to_label(available_label, false);
+    set_language_display(available_label);
+
+    g_scan_refresh_btn = lv_btn_create(scan_header);
+    theme_apply_to_button(g_scan_refresh_btn, false);
+    lv_obj_set_style_pad_all(g_scan_refresh_btn, 6, 0);
+    lv_obj_add_event_cb(g_scan_refresh_btn, wifi_refresh_btn_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t* refresh_label = lv_label_create(g_scan_refresh_btn);
+    lv_label_set_text_fmt(refresh_label, "%s", text->refresh_button);
+    theme_apply_to_label(refresh_label, false);
+    set_language_display(refresh_label);
+
+    g_scan_status_label = lv_label_create(wifi_container);
+    lv_label_set_text(g_scan_status_label, text->scan_no_networks);
+    theme_apply_to_label(g_scan_status_label, false);
+    set_language_display(g_scan_status_label);
+
+    g_available_list = lv_obj_create(wifi_container);
+    lv_obj_set_width(g_available_list, lv_pct(100));
+    lv_obj_set_height(g_available_list, 200);
+    lv_obj_set_flex_flow(g_available_list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(g_available_list, 4, 0);
+    lv_obj_set_style_pad_gap(g_available_list, 6, 0);
+    lv_obj_set_style_bg_opa(g_available_list, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(g_available_list, 0, 0);
+    lv_obj_set_scroll_dir(g_available_list, LV_DIR_VER);
+    lv_obj_set_style_width(g_available_list, 0, LV_PART_SCROLLBAR);
+    lv_obj_set_style_opa(g_available_list, LV_OPA_0, LV_PART_SCROLLBAR);
+    theme_apply_to_container(g_available_list);
+
+    // --- 4. 已保存的网络列表 ---
     lv_obj_t* dropdown_container_item = lv_obj_create(wifi_container);
     lv_obj_set_width(dropdown_container_item, lv_pct(100));
     lv_obj_set_height(dropdown_container_item, LV_SIZE_CONTENT);
@@ -312,7 +708,6 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_set_style_pad_all(dropdown_container_item, 5, 0);
     lv_obj_set_style_bg_opa(dropdown_container_item, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(dropdown_container_item, 0, 0);
-    // 禁止滚动
     lv_obj_clear_flag(dropdown_container_item, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* dropdown_title_label = lv_label_create(dropdown_container_item);
@@ -320,24 +715,12 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     theme_apply_to_label(dropdown_title_label, false);
     set_language_display(dropdown_title_label);
 
-    lv_obj_t* wifi_dropdown = lv_dropdown_create(dropdown_container_item);
-    lv_obj_set_width(wifi_dropdown, lv_pct(100));
-    theme_apply_to_button(wifi_dropdown, false);
-    int32_t wifi_count = wifi_manager_get_wifi_list_size();
-    if (wifi_count > 0) {
-        char ssid_list[512] = {0};
-        for (int i = 0; i < wifi_count; i++) {
-            const char* ssid = wifi_manager_get_wifi_ssid_by_index(i);
-            if (ssid) {
-                strcat(ssid_list, ssid);
-                if (i < wifi_count - 1) {
-                    strcat(ssid_list, "\n");
-                }
-            }
-        }
-        lv_dropdown_set_options(wifi_dropdown, ssid_list);
-    }
-    lv_obj_add_event_cb(wifi_dropdown, wifi_dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    g_saved_dropdown = lv_dropdown_create(dropdown_container_item);
+    lv_obj_set_width(g_saved_dropdown, lv_pct(100));
+    theme_apply_to_button(g_saved_dropdown, false);
+    lv_obj_add_event_cb(g_saved_dropdown, wifi_dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    g_last_saved_network_count = -1;
+    rebuild_saved_network_dropdown();
 
     // --- 4. WiFi信息显示 ---
     lv_obj_t* info_container_item = lv_obj_create(wifi_container);
@@ -384,6 +767,12 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_label_set_text_fmt(power_val_label, "%s: %d dBm", text->tx_power, power_dbm);
     set_language_display(power_val_label);
 
+    g_last_scan_version = UINT32_MAX;
+    update_scan_section();
+    if (current_info.state != WIFI_STATE_DISABLED) {
+        trigger_wifi_scan(false);
+    }
+
     // 创建并启动UI更新定时器
     g_update_timer = lv_timer_create(ui_update_timer_cb, 500, NULL);
 
@@ -393,6 +782,9 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
 
 static void wifi_dropdown_event_cb(lv_event_t* e) {
     lv_obj_t* dropdown = lv_event_get_target(e);
+    if (lv_dropdown_get_option_cnt(dropdown) == 0) {
+        return;
+    }
     uint16_t selected_index = lv_dropdown_get_selected(dropdown);
     wifi_manager_connect_to_index(selected_index);
 }

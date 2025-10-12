@@ -12,8 +12,10 @@ extern "C" {
 #endif
 
 #include "esp_err.h" // 添加缺失的头文件
+#include "esp_wifi_types.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 // WiFi状态枚举
 typedef enum {
@@ -30,6 +32,14 @@ typedef struct {
     uint8_t mac_addr[6];
     char ssid[33];       // 当前连接的SSID
 } wifi_manager_info_t;
+
+// WiFi扫描结果结构体
+typedef struct {
+    char ssid[33];
+    int16_t rssi;
+    wifi_auth_mode_t authmode;
+    uint8_t channel;
+} wifi_manager_scan_result_t;
 
 // WiFi状态变化时的回调函数类型
 typedef void (*wifi_manager_event_cb_t)(void);
@@ -75,6 +85,12 @@ esp_err_t wifi_manager_get_power(int8_t* power_dbm);
 wifi_manager_info_t wifi_manager_get_info(void);
 
 /**
+ * @brief 注册WiFi事件回调
+ * @param event_cb 回调函数，传入NULL可取消注册
+ */
+void wifi_manager_register_event_callback(wifi_manager_event_cb_t event_cb);
+
+/**
  * @brief 启动时间同步
  */
 void wifi_manager_sync_time(void);
@@ -108,44 +124,49 @@ const char* wifi_manager_get_wifi_ssid_by_index(int32_t index);
 esp_err_t wifi_manager_connect_to_index(int32_t index);
 
 /**
- * @brief 获取已保存的WiFi列表大小
- * @return int32_t WiFi数量
+ * @brief 获取指定SSID的保存密码
+ * @param ssid 网络名称
+ * @return const char* 保存的密码，未找到返回NULL
  */
-int32_t wifi_manager_get_wifi_list_size(void);
+const char* wifi_manager_get_saved_password(const char* ssid);
 
 /**
- * @brief 根据索引获取WiFi的SSID
- * @param index 索引
- * @return const char* SSID字符串, 如果索引无效则返回NULL
- */
-const char* wifi_manager_get_wifi_ssid_by_index(int32_t index);
-
-/**
- * @brief 连接到指定索引的WiFi
- * @param index 要连接的WiFi在列表中的索引
+ * @brief 使用指定SSID和密码进行连接
+ * @param ssid 网络名称
+ * @param password 网络密码
  * @return esp_err_t
  */
-esp_err_t wifi_manager_connect_to_index(int32_t index);
+esp_err_t wifi_manager_connect_with_password(const char* ssid, const char* password);
 
 /**
- * @brief 获取已保存的WiFi列表大小
- * @return int32_t WiFi数量
- */
-int32_t wifi_manager_get_wifi_list_size(void);
-
-/**
- * @brief 根据索引获取WiFi的SSID
- * @param index 索引
- * @return const char* SSID字符串, 如果索引无效则返回NULL
- */
-const char* wifi_manager_get_wifi_ssid_by_index(int32_t index);
-
-/**
- * @brief 连接到指定索引的WiFi
- * @param index 要连接的WiFi在列表中的索引
+ * @brief 开始扫描WiFi网络
+ * @param block 是否阻塞等待扫描完成
  * @return esp_err_t
  */
-esp_err_t wifi_manager_connect_to_index(int32_t index);
+esp_err_t wifi_manager_start_scan(bool block);
+
+/**
+ * @brief 当前是否正在扫描
+ */
+bool wifi_manager_is_scanning(void);
+
+/**
+ * @brief 获取扫描结果数量
+ */
+size_t wifi_manager_get_scan_result_count(void);
+
+/**
+ * @brief 获取扫描结果列表
+ * @param results 输出数组
+ * @param max_results 数组容量
+ * @return 实际写入的数量
+ */
+size_t wifi_manager_get_scan_results(wifi_manager_scan_result_t* results, size_t max_results);
+
+/**
+ * @brief 获取扫描结果版本号，结果更新时会变化
+ */
+uint32_t wifi_manager_get_scan_results_version(void);
 
 #ifdef __cplusplus
 }

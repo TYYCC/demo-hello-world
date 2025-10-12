@@ -16,6 +16,7 @@ typedef struct {
     void* user_data;
 } keypad_data_t;
 
+
 // 按键标签
 static const char* keypad_labels[] = {
     "1", "2", "3",
@@ -88,7 +89,7 @@ lv_obj_t* ui_numeric_keypad_create(lv_obj_t* parent, const char* title,
 
     // 标题文本
     data->title_label = lv_label_create(title_bar);
-    lv_label_set_text(data->title_label, "AP Password");
+    lv_label_set_text(data->title_label, (title && title[0] != '\0') ? title : "AP Password");
     theme_apply_to_label(data->title_label, false);
 
     // 关闭按钮 - 固定在右上方

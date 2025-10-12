@@ -30,6 +30,12 @@ static int s_retry_num = 0;
 static wifi_manager_info_t g_wifi_info;
 static wifi_manager_event_cb_t g_event_cb = NULL;
 
+#define WIFI_MANAGER_MAX_SCAN_RESULTS 32
+static wifi_ap_record_t s_scan_records[WIFI_MANAGER_MAX_SCAN_RESULTS];
+static uint16_t s_scan_count = 0;
+static bool s_scan_in_progress = false;
+static uint32_t s_scan_results_version = 0;
+
 // 用于定期检查WiFi带宽的定时器
 static TimerHandle_t wifi_bandwidth_check_timer = NULL;
 static const int WIFI_BW_CHECK_INTERVAL_MS = 30000; // 30秒检查一次带宽
@@ -37,6 +43,8 @@ static const int WIFI_BW_CHECK_INTERVAL_MS = 30000; // 30秒检查一次带宽
 // 函数前向声明
 static void start_wifi_bandwidth_check_timer(void);
 static void check_wifi_bandwidth_timer_cb(TimerHandle_t xTimer);
+static void add_wifi_to_list(const char* ssid, const char* password);
+static const char* find_wifi_password(const char* ssid);
 
 #define WIFI_NVS_NAMESPACE "wifi_config"
 #define WIFI_NVS_KEY_SSID "ssid"
@@ -54,9 +62,8 @@ static wifi_config_entry_t wifi_list[MAX_WIFI_LIST_SIZE] = {
     {"Sysware-AP", "syswareonline.com"},
     {"Xiaomi13", "22989822"},
     {"TiydC", "22989822"},
-
 };
-static int32_t wifi_list_size = 128;
+static int32_t wifi_list_size = 4;
 
 // 前向声明
 static bool load_wifi_config_from_nvs(char* ssid, size_t ssid_len, char* password,
@@ -64,7 +71,6 @@ static bool load_wifi_config_from_nvs(char* ssid, size_t ssid_len, char* passwor
 static void __attribute__((unused)) save_wifi_config_to_nvs(const char* ssid, const char* password);
 static void save_wifi_list_to_nvs(void);
 static void load_wifi_list_from_nvs(void);
-static void add_wifi_to_list(const char* ssid, const char* password);
 
 /**
  * @brief WiFi事件处理器
@@ -87,6 +93,26 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
         // 如果设置了回调函数，则调用它
         if (g_event_cb) {
             g_event_cb();
+        }
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_SCAN_DONE) {
+        s_scan_in_progress = false;
+        wifi_event_sta_scan_done_t* scan_done = (wifi_event_sta_scan_done_t*)event_data;
+        if (scan_done && scan_done->status != 0) {
+            ESP_LOGW(TAG, "WiFi scan finished with status: %d", scan_done->status);
+            s_scan_count = 0;
+            s_scan_results_version++;
+        } else {
+            uint16_t number = WIFI_MANAGER_MAX_SCAN_RESULTS;
+            esp_err_t err = esp_wifi_scan_get_ap_records(&number, s_scan_records);
+            if (err == ESP_OK) {
+                s_scan_count = number;
+                s_scan_results_version++;
+                ESP_LOGI(TAG, "WiFi scan completed: %u APs", number);
+            } else {
+                ESP_LOGW(TAG, "Failed to get scan records: %s", esp_err_to_name(err));
+                s_scan_count = 0;
+                s_scan_results_version++;
+            }
         }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*)event_data;
@@ -243,6 +269,11 @@ esp_err_t wifi_manager_stop(void) {
         vEventGroupDelete(s_wifi_event_group);
         s_wifi_event_group = NULL;
     }
+    if (s_scan_count > 0) {
+        s_scan_count = 0;
+        s_scan_results_version++;
+    }
+    s_scan_in_progress = false;
     ESP_LOGI(TAG, "WiFi stopped.");
     return err;
 }
@@ -274,6 +305,10 @@ esp_err_t wifi_manager_get_power(int8_t* power_dbm) {
 }
 
 wifi_manager_info_t wifi_manager_get_info(void) { return g_wifi_info; }
+
+void wifi_manager_register_event_callback(wifi_manager_event_cb_t event_cb) {
+    g_event_cb = event_cb;
+}
 
 /**
  * @brief 时间同步回调函数
@@ -342,37 +377,56 @@ const char* wifi_manager_get_wifi_ssid_by_index(int32_t index) {
     return wifi_list[index].ssid;
 }
 
+const char* wifi_manager_get_saved_password(const char* ssid) {
+    return find_wifi_password(ssid);
+}
+
 esp_err_t wifi_manager_connect_to_index(int32_t index) {
     if (index < 0 || index >= wifi_list_size) {
         return ESP_ERR_INVALID_ARG;
     }
+    return wifi_manager_connect_with_password(wifi_list[index].ssid, wifi_list[index].password);
+}
 
-    ESP_LOGI(TAG, "Connecting to %s...", wifi_list[index].ssid);
+esp_err_t wifi_manager_connect_with_password(const char* ssid, const char* password) {
+    if (ssid == NULL || ssid[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
 
-    // 先断开当前连接，避免冲突
+    ESP_LOGI(TAG, "Connecting to %s...", ssid);
+
     esp_wifi_disconnect();
-    vTaskDelay(pdMS_TO_TICKS(200)); // 等待断开完成
+    vTaskDelay(pdMS_TO_TICKS(200));
 
     wifi_config_t wifi_config = {0};
-    strlcpy((char*)wifi_config.sta.ssid, wifi_list[index].ssid, sizeof(wifi_config.sta.ssid));
-    strlcpy((char*)wifi_config.sta.password, wifi_list[index].password,
-            sizeof(wifi_config.sta.password));
+    strlcpy((char*)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
+    if (password) {
+        strlcpy((char*)wifi_config.sta.password, password, sizeof(wifi_config.sta.password));
+    } else {
+        wifi_config.sta.password[0] = '\0';
+    }
 
-    // 设置认证模式
-    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+    wifi_config.sta.threshold.authmode = (password && password[0] != '\0') ? WIFI_AUTH_WPA_WPA2_PSK
+                                                                            : WIFI_AUTH_OPEN;
     wifi_config.sta.threshold.rssi = -127;
 
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    
-    // 确保使用40MHz带宽
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set WiFi config: %s", esp_err_to_name(err));
+        return err;
+    }
+
     esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40);
-    
-    esp_err_t err = esp_wifi_connect();
+
+    err = esp_wifi_connect();
     if (err == ESP_OK) {
         g_wifi_info.state = WIFI_STATE_CONNECTING;
+        add_wifi_to_list(ssid, password);
         if (g_event_cb) {
             g_event_cb();
         }
+    } else {
+        ESP_LOGE(TAG, "Failed to connect: %s", esp_err_to_name(err));
     }
     return err;
 }
@@ -444,16 +498,50 @@ static void load_wifi_list_from_nvs() {
 }
 
 static void add_wifi_to_list(const char* ssid, const char* password) {
-    if (wifi_list_size < MAX_WIFI_LIST_SIZE) {
-        strncpy(wifi_list[wifi_list_size].ssid, ssid, sizeof(wifi_list[wifi_list_size].ssid));
-        strncpy(wifi_list[wifi_list_size].password, password,
-                sizeof(wifi_list[wifi_list_size].password));
-        wifi_list_size++;
-        save_wifi_list_to_nvs();
-        ESP_LOGI(TAG, "WiFi added to list: %s", ssid);
-    } else {
-        ESP_LOGW(TAG, "WiFi list is full, cannot add: %s", ssid);
+    if (ssid == NULL || ssid[0] == '\0') {
+        return;
     }
+
+    for (int32_t i = 0; i < wifi_list_size; i++) {
+        if (strcmp(wifi_list[i].ssid, ssid) == 0) {
+            if (password) {
+                strlcpy(wifi_list[i].password, password, sizeof(wifi_list[i].password));
+            } else {
+                wifi_list[i].password[0] = '\0';
+            }
+            save_wifi_list_to_nvs();
+            ESP_LOGI(TAG, "WiFi updated in list: %s", ssid);
+            return;
+        }
+    }
+
+    if (wifi_list_size >= MAX_WIFI_LIST_SIZE) {
+        ESP_LOGW(TAG, "WiFi list is full, cannot add: %s", ssid);
+        return;
+    }
+
+    strlcpy(wifi_list[wifi_list_size].ssid, ssid, sizeof(wifi_list[wifi_list_size].ssid));
+    if (password) {
+        strlcpy(wifi_list[wifi_list_size].password, password,
+                sizeof(wifi_list[wifi_list_size].password));
+    } else {
+        wifi_list[wifi_list_size].password[0] = '\0';
+    }
+    wifi_list_size++;
+    save_wifi_list_to_nvs();
+    ESP_LOGI(TAG, "WiFi added to list: %s", ssid);
+}
+
+static const char* find_wifi_password(const char* ssid) {
+    if (ssid == NULL) {
+        return NULL;
+    }
+    for (int32_t i = 0; i < wifi_list_size; i++) {
+        if (strcmp(wifi_list[i].ssid, ssid) == 0) {
+            return wifi_list[i].password;
+        }
+    }
+    return NULL;
 }
 
 /**
@@ -529,3 +617,76 @@ static void start_wifi_bandwidth_check_timer(void) {
         ESP_LOGE(TAG, "Failed to create WiFi bandwidth check timer");
     }
 }
+
+esp_err_t wifi_manager_start_scan(bool block) {
+    if (s_scan_in_progress) {
+        ESP_LOGW(TAG, "WiFi scan already in progress");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    wifi_mode_t mode = WIFI_MODE_NULL;
+    esp_err_t err = esp_wifi_get_mode(&mode);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get WiFi mode: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    if (mode != WIFI_MODE_STA && mode != WIFI_MODE_APSTA) {
+        ESP_LOGW(TAG, "WiFi scan requested while STA mode is not active");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    wifi_scan_config_t scan_config = {
+        .ssid = NULL,
+        .bssid = NULL,
+        .channel = 0,
+        .show_hidden = false,
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+    };
+    scan_config.scan_time.active.min = 100;
+    scan_config.scan_time.active.max = 300;
+
+    s_scan_in_progress = true;
+    s_scan_count = 0;
+    s_scan_results_version++;
+
+    err = esp_wifi_scan_start(&scan_config, block);
+    if (err != ESP_OK) {
+        s_scan_in_progress = false;
+        ESP_LOGE(TAG, "Failed to start WiFi scan: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    if (block) {
+        s_scan_in_progress = false;
+    }
+
+    ESP_LOGI(TAG, "WiFi scan started (block=%d)", block);
+    return ESP_OK;
+}
+
+bool wifi_manager_is_scanning(void) { return s_scan_in_progress; }
+
+size_t wifi_manager_get_scan_result_count(void) { return s_scan_count; }
+
+size_t wifi_manager_get_scan_results(wifi_manager_scan_result_t* results, size_t max_results) {
+    if (results == NULL || max_results == 0) {
+        return 0;
+    }
+
+    size_t available = s_scan_count;
+    if (available > max_results) {
+        available = max_results;
+    }
+
+    for (size_t i = 0; i < available; i++) {
+        strlcpy(results[i].ssid, (const char*)s_scan_records[i].ssid, sizeof(results[i].ssid));
+        results[i].rssi = s_scan_records[i].rssi;
+        results[i].authmode = s_scan_records[i].authmode;
+        results[i].channel = s_scan_records[i].primary;
+    }
+
+    return available;
+}
+
+uint32_t wifi_manager_get_scan_results_version(void) { return s_scan_results_version; }
