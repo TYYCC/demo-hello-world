@@ -14,6 +14,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include <string.h>
+#include <stdio.h>
 #include <sys/time.h>
 #include <time.h>
 
@@ -35,6 +36,8 @@ static wifi_ap_record_t s_scan_records[WIFI_MANAGER_MAX_SCAN_RESULTS];
 static uint16_t s_scan_count = 0;
 static bool s_scan_in_progress = false;
 static uint32_t s_scan_results_version = 0;
+static wifi_err_reason_t s_last_disconnect_reason = WIFI_REASON_UNSPECIFIED;
+static uint32_t s_disconnect_sequence = 0;
 
 // 用于定期检查WiFi带宽的定时器
 static TimerHandle_t wifi_bandwidth_check_timer = NULL;
@@ -68,7 +71,7 @@ static int32_t wifi_list_size = 4;
 // 前向声明
 static bool load_wifi_config_from_nvs(char* ssid, size_t ssid_len, char* password,
                                       size_t password_len);
-static void __attribute__((unused)) save_wifi_config_to_nvs(const char* ssid, const char* password);
+static void save_wifi_config_to_nvs(const char* ssid, const char* password);
 static void save_wifi_list_to_nvs(void);
 static void load_wifi_list_from_nvs(void);
 
@@ -82,13 +85,20 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
         esp_wifi_connect();
         ESP_LOGI(TAG, "STA Start, connecting to AP...");
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_event_sta_disconnected_t* disconnected = (wifi_event_sta_disconnected_t*)event_data;
         g_wifi_info.state = WIFI_STATE_DISCONNECTED;
         strcpy(g_wifi_info.ip_addr, "N/A");
         memset(g_wifi_info.ssid, 0, sizeof(g_wifi_info.ssid)); // 清空SSID
 
         // 重置重试计数，避免自动重连
         s_retry_num = 0;
-        ESP_LOGI(TAG, "WiFi disconnected");
+        if (disconnected) {
+            s_last_disconnect_reason = disconnected->reason;
+        } else {
+            s_last_disconnect_reason = WIFI_REASON_UNSPECIFIED;
+        }
+        s_disconnect_sequence++;
+        ESP_LOGW(TAG, "WiFi disconnected, reason: %d", s_last_disconnect_reason);
 
         // 如果设置了回调函数，则调用它
         if (g_event_cb) {
@@ -128,8 +138,9 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
         esp_wifi_get_config(WIFI_IF_STA, &wifi_config);
         strncpy(g_wifi_info.ssid, (char*)wifi_config.sta.ssid, sizeof(g_wifi_info.ssid) - 1);
 
-        // Add connected WiFi to the list
+        // Add connected WiFi to the list and persist credentials
         add_wifi_to_list((char*)wifi_config.sta.ssid, (char*)wifi_config.sta.password);
+        save_wifi_config_to_nvs((char*)wifi_config.sta.ssid, (char*)wifi_config.sta.password);
 
         ESP_LOGI(TAG, "Starting time synchronization...");
         wifi_manager_sync_time();
@@ -233,7 +244,7 @@ esp_err_t wifi_manager_start(void) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    // 设置WiFi带宽为40MHz，提高传输速率（WiFi启动后设置）
+    // 尝试设置 STA 带宽为 HT40，如失败则回退 HT20（只在启动时尝试一次，避免频繁切带宽影响稳定性）
     esp_err_t bandwidth_ret = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40);
     if (bandwidth_ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set WiFi bandwidth to HT40, trying HT20: %s", esp_err_to_name(bandwidth_ret));
@@ -243,14 +254,14 @@ esp_err_t wifi_manager_start(void) {
         }
     }
 
-    // WiFi启动后设置发射功率
-    esp_err_t power_ret = esp_wifi_set_max_tx_power(32);
+    // WiFi 启动后设置发射功率（使用 dBm 语义，避免 quarter-dBm 误用导致功率过低）
+    esp_err_t power_ret = wifi_manager_set_power(20); // 20 dBm
     if (power_ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set WiFi power: %s", esp_err_to_name(power_ret));
     }
     
-    // 启动WiFi带宽检查定时器
-    start_wifi_bandwidth_check_timer();
+    // 启动WiFi带宽检查定时器（为提升连接稳定性，先禁用定时强制切换带宽）
+    // start_wifi_bandwidth_check_timer();
 
     ESP_LOGI(TAG, "wifi_manager_start finished, connection is in progress...");
     return ESP_OK;
@@ -395,32 +406,61 @@ esp_err_t wifi_manager_connect_with_password(const char* ssid, const char* passw
 
     ESP_LOGI(TAG, "Connecting to %s...", ssid);
 
+    // 如果正在扫描，先停止扫描
+    if (s_scan_in_progress) {
+        ESP_LOGI(TAG, "Stopping ongoing WiFi scan before connecting");
+        esp_wifi_scan_stop();
+        s_scan_in_progress = false;
+    }
+
     esp_wifi_disconnect();
     vTaskDelay(pdMS_TO_TICKS(200));
 
-    wifi_config_t wifi_config = {0};
+    wifi_config_t wifi_config;
+    esp_err_t err = esp_wifi_get_config(WIFI_IF_STA, &wifi_config);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to get current WiFi config: %s", esp_err_to_name(err));
+        memset(&wifi_config, 0, sizeof(wifi_config));
+    }
+
+    memset(wifi_config.sta.ssid, 0, sizeof(wifi_config.sta.ssid));
+    memset(wifi_config.sta.password, 0, sizeof(wifi_config.sta.password));
     strlcpy((char*)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
     if (password) {
         strlcpy((char*)wifi_config.sta.password, password, sizeof(wifi_config.sta.password));
-    } else {
-        wifi_config.sta.password[0] = '\0';
     }
 
     wifi_config.sta.threshold.authmode = (password && password[0] != '\0') ? WIFI_AUTH_WPA_WPA2_PSK
                                                                             : WIFI_AUTH_OPEN;
     wifi_config.sta.threshold.rssi = -127;
+    wifi_config.sta.pmf_cfg.capable = true;
+    wifi_config.sta.pmf_cfg.required = false;
+#ifdef CONFIG_ESP_WIFI_ENABLE_WPA3_SAE
+    wifi_config.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;
+#endif
 
-    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set WiFi config: %s", esp_err_to_name(err));
         return err;
     }
 
-    esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40);
+    // 连接前优先尝试 HT40，如失败则回退 HT20，避免在不支持 HT40 的 AP 上造成不稳定
+    do {
+        esp_err_t bw_ret = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40);
+        if (bw_ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to set STA bandwidth to HT40 before connect, fallback HT20: %s", esp_err_to_name(bw_ret));
+            bw_ret = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+            if (bw_ret != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to set STA bandwidth to HT20 before connect: %s", esp_err_to_name(bw_ret));
+            }
+        }
+    } while (0);
 
     err = esp_wifi_connect();
     if (err == ESP_OK) {
         g_wifi_info.state = WIFI_STATE_CONNECTING;
+        strlcpy(g_wifi_info.ssid, ssid, sizeof(g_wifi_info.ssid));
         add_wifi_to_list(ssid, password);
         if (g_event_cb) {
             g_event_cb();
@@ -430,6 +470,10 @@ esp_err_t wifi_manager_connect_with_password(const char* ssid, const char* passw
     }
     return err;
 }
+
+wifi_err_reason_t wifi_manager_get_last_disconnect_reason(void) { return s_last_disconnect_reason; }
+
+uint32_t wifi_manager_get_disconnect_sequence(void) { return s_disconnect_sequence; }
 
 static void __attribute__((unused)) save_wifi_config_to_nvs(const char* ssid, const char* password) {
     nvs_handle_t nvs_handle;

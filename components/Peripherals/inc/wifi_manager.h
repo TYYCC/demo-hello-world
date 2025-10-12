@@ -168,6 +168,16 @@ size_t wifi_manager_get_scan_results(wifi_manager_scan_result_t* results, size_t
  */
 uint32_t wifi_manager_get_scan_results_version(void);
 
+/**
+ * @brief 获取最近一次断开连接的原因
+ */
+wifi_err_reason_t wifi_manager_get_last_disconnect_reason(void);
+
+/**
+ * @brief 获取断开事件序列号，用于检测新的断开事件
+ */
+uint32_t wifi_manager_get_disconnect_sequence(void);
+
 #ifdef __cplusplus
 }
 #endif

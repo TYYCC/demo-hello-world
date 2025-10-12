@@ -32,6 +32,12 @@ typedef struct {
     const char* status_connected;
     const char* keypad_title_fmt;
     const char* saved_tag;
+    const char* connect_failed_fmt;
+    const char* reason_auth_fail;
+    const char* reason_no_ap;
+    const char* reason_assoc_fail;
+    const char* reason_handshake_timeout;
+    const char* reason_unknown_fmt;
 } wifi_text_t;
 
 // 英文文本
@@ -40,10 +46,10 @@ static const wifi_text_t wifi_english_text = {
     .enable_wifi = "Enable WiFi",
     .tx_power = "Tx Power",
     .saved_networks = "Saved Networks",
-    .available_networks = "Available Networks",
+    .available_networks = "Available",
     .refresh_button = "Scan",
     .scan_in_progress = "Scanning...",
-    .scan_no_networks = "Tap scan to search for networks",
+    .scan_no_networks = "Search",
     .scan_result_fmt = "%d networks found",
     .details_button = "Details",
     .details_title = "Network Details",
@@ -55,8 +61,14 @@ static const wifi_text_t wifi_english_text = {
     .status_disconnected = "Disconnected",
     .status_connecting = "Connecting...",
     .status_connected = "Connected",
-    .keypad_title_fmt = "Enter password for %s",
+    .keypad_title_fmt = "Password",
     .saved_tag = "Saved",
+    .connect_failed_fmt = "Failed to connect: %s",
+    .reason_auth_fail = "Authentication failed. Please re-enter the password.",
+    .reason_no_ap = "Network not found. It may be out of range or hidden.",
+    .reason_assoc_fail = "Association with the access point failed.",
+    .reason_handshake_timeout = "Secure handshake timed out.",
+    .reason_unknown_fmt = "Unexpected error code %d",
 };
 
 // 中文文本
@@ -82,6 +94,12 @@ static const wifi_text_t wifi_chinese_text = {
     .status_connected = "已连接",
     .keypad_title_fmt = "输入 %s 的密码",
     .saved_tag = "已保存",
+    .connect_failed_fmt = "连接失败：%s",
+    .reason_auth_fail = "认证失败，请重新输入密码。",
+    .reason_no_ap = "未找到该网络，可能信号弱或被隐藏。",
+    .reason_assoc_fail = "与接入点关联失败。",
+    .reason_handshake_timeout = "安全握手过程超时。",
+    .reason_unknown_fmt = "未知错误代码 %d",
 };
 
 // 获取当前语言文本
@@ -105,7 +123,9 @@ static lv_obj_t* g_wifi_switch_obj;
 static lv_timer_t* g_update_timer;
 static bool g_wifi_ui_initialized = false;
 static uint32_t g_last_scan_version = UINT32_MAX;
+static wifi_manager_state_t g_last_wifi_state = WIFI_STATE_DISABLED;
 static int32_t g_last_saved_network_count = -1;
+static uint32_t g_last_disconnect_notified_seq = 0;
 
 static void wifi_dropdown_event_cb(lv_event_t* e);
 static void wifi_refresh_btn_event_cb(lv_event_t* e);
@@ -130,6 +150,27 @@ typedef struct {
     char ssid[33];
 } wifi_connect_request_t;
 
+static const char* get_reason_text(wifi_err_reason_t reason, const wifi_text_t* text) {
+    switch (reason) {
+    case WIFI_REASON_AUTH_FAIL:
+    case WIFI_REASON_HANDSHAKE_TIMEOUT:
+    case WIFI_REASON_MIC_FAILURE:
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+        return text->reason_auth_fail;
+    case WIFI_REASON_NO_AP_FOUND:
+        return text->reason_no_ap;
+    case WIFI_REASON_ASSOC_FAIL:
+    case WIFI_REASON_ASSOC_EXPIRE:
+    case WIFI_REASON_ASSOC_TOOMANY:
+        return text->reason_assoc_fail;
+    case WIFI_REASON_BEACON_TIMEOUT:
+    case WIFI_REASON_CONNECTION_FAIL:
+        return text->reason_handshake_timeout;
+    default:
+        return NULL;
+    }
+}
+
 /**
  * @brief 更新WiFi信息显示
  */
@@ -140,6 +181,8 @@ static void update_wifi_info(void) {
 
     const wifi_text_t* text = get_wifi_text();
     wifi_manager_info_t info = wifi_manager_get_info();
+    wifi_manager_state_t previous_state = g_last_wifi_state;
+    g_last_wifi_state = info.state;
 
     switch (info.state) {
     case WIFI_STATE_DISABLED:
@@ -174,6 +217,31 @@ static void update_wifi_info(void) {
         } else if (!should_be_checked && currently_checked) {
             lv_obj_clear_state(g_wifi_switch_obj, LV_STATE_CHECKED);
         }
+    }
+
+    if ((previous_state == WIFI_STATE_CONNECTING || previous_state == WIFI_STATE_CONNECTED) &&
+        info.state == WIFI_STATE_DISCONNECTED) {
+        uint32_t seq = wifi_manager_get_disconnect_sequence();
+        if (seq != 0 && seq != g_last_disconnect_notified_seq) {
+            g_last_disconnect_notified_seq = seq;
+            wifi_err_reason_t reason = wifi_manager_get_last_disconnect_reason();
+            const char* reason_text = get_reason_text(reason, text);
+            char reason_desc[128];
+            if (reason_text) {
+                snprintf(reason_desc, sizeof(reason_desc), "%s (%d)", reason_text, (int)reason);
+            } else {
+                snprintf(reason_desc, sizeof(reason_desc), text->reason_unknown_fmt, (int)reason);
+            }
+            char msg[160];
+            snprintf(msg, sizeof(msg), text->connect_failed_fmt, reason_desc);
+            lv_obj_t* msgbox = lv_msgbox_create(lv_scr_act(), text->title, msg, NULL, true);
+            lv_obj_center(msgbox);
+            set_language_display(msgbox);
+        }
+    }
+
+    if (info.state == WIFI_STATE_CONNECTED) {
+        g_last_disconnect_notified_seq = wifi_manager_get_disconnect_sequence();
     }
 }
 
@@ -224,12 +292,12 @@ static void rebuild_available_network_list(void) {
         lv_obj_set_flex_grow(name_label, 1);
 
         char detail_text[96];
-        const char* lock_symbol = (results[i].authmode == WIFI_AUTH_OPEN) ? "" : LV_SYMBOL_BARS " ";
+        const char* security_prefix = (results[i].authmode == WIFI_AUTH_OPEN) ? "" : "[Sec] ";
         if (data->is_saved) {
-            snprintf(detail_text, sizeof(detail_text), "%s%s %d dBm · %s", lock_symbol,
+            snprintf(detail_text, sizeof(detail_text), "%s%s %d dBm [%s]", security_prefix,
                      LV_SYMBOL_WIFI, (int)results[i].rssi, text->saved_tag);
         } else {
-            snprintf(detail_text, sizeof(detail_text), "%s%s %d dBm", lock_symbol,
+            snprintf(detail_text, sizeof(detail_text), "%s%s %d dBm", security_prefix,
                      LV_SYMBOL_WIFI, (int)results[i].rssi);
         }
 
@@ -368,6 +436,8 @@ static void trigger_wifi_scan(bool show_error) {
 static void wifi_manager_ui_event_cb(void) {
     g_last_scan_version = UINT32_MAX;
     g_last_saved_network_count = -1;
+    g_last_wifi_state = wifi_manager_get_info().state;
+    g_last_disconnect_notified_seq = wifi_manager_get_disconnect_sequence();
 }
 
 static void wifi_refresh_btn_event_cb(lv_event_t* e) {
@@ -464,6 +534,8 @@ static void ui_wifi_settings_cleanup(lv_event_t* e) {
     g_wifi_switch_obj = NULL;
     g_last_scan_version = UINT32_MAX;
     g_last_saved_network_count = -1;
+    g_last_wifi_state = WIFI_STATE_DISABLED;
+    g_last_disconnect_notified_seq = 0;
     g_wifi_ui_initialized = false;
     // The parent's children are cleaned by LVGL automatically.
 }
@@ -767,6 +839,8 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_label_set_text_fmt(power_val_label, "%s: %d dBm", text->tx_power, power_dbm);
     set_language_display(power_val_label);
 
+    g_last_wifi_state = current_info.state;
+    g_last_disconnect_notified_seq = wifi_manager_get_disconnect_sequence();
     g_last_scan_version = UINT32_MAX;
     update_scan_section();
     if (current_info.state != WIFI_STATE_DISABLED) {
