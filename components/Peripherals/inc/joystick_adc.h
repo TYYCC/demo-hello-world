@@ -19,8 +19,8 @@ extern "C" {
 // 摇杆硬件配置
 // ========================================
 // 摇杆1
-#define JOYSTICK1_ADC_X_CHANNEL ADC1_CHANNEL_0 // IO1
-#define JOYSTICK1_ADC_Y_CHANNEL ADC1_CHANNEL_1 // IO2
+#define JOYSTICK1_ADC_X_CHANNEL ADC1_CHANNEL_2 // IO3
+#define JOYSTICK1_ADC_Y_CHANNEL ADC1_CHANNEL_8 // IO9
 
 // ADC衰减配置
 #define JOYSTICK_ADC_ATTEN      ADC_ATTEN_DB_11

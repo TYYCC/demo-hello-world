@@ -142,12 +142,12 @@ esp_err_t components_init(void) {
         ESP_LOGI(TAG, "LSM6DS3 initialized successfully");
     }
 
-    // 初始化GT911触摸控制器
-    ret = gt911_init();
+    // 初始化FT6336G触摸控制器
+    ret = ft6336g_init();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "GT911 initialization failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "FT6336G initialization failed: %s", esp_err_to_name(ret));
     } else {
-        ESP_LOGI(TAG, "GT911 initialized successfully");
+        ESP_LOGI(TAG, "FT6336G initialized successfully");
     }
 
     // 初始化UI状态管理器

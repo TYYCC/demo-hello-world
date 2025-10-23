@@ -397,7 +397,7 @@ static void st7789_init_sequence(void)
     st7789_write_data_buf((const uint8_t[]){0xD0, 0x00, 0x03, 0x01, 0x00, 0x10, 0x21, 0x32, 0x38, 0x16, 0x14, 0x14, 0x20, 0x3D}, 14);
 
     // The reference driver does NOT turn on color inversion. This is a likely cause of issues.
-    st7789_write_cmd(ST7789_CMD_INVON);
+    // st7789_write_cmd(ST7789_CMD_INVON);
     
     // The reference driver does not use NORON, it just calls DISPON.
     // st7789_write_cmd(ST7789_CMD_NORON);

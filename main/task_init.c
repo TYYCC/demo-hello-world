@@ -447,11 +447,11 @@ esp_err_t init_all_tasks(void) {
     }
 
     // 初始化电池监测任务
-    // ret = init_battery_monitor_task();
-    // if (ret != ESP_OK) {
-    //     ESP_LOGE(TAG, "Failed to init battery monitor task");
-    //     return ret;
-    // }
+    ret = init_battery_monitor_task();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to init battery monitor task");
+        return ret;
+    }
 
     // 初始化WiFi管理任务
     ret = init_wifi_manager_task();
