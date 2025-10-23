@@ -15,6 +15,7 @@
 #include "task_init.h"
 #include "wifi_manager.h"
 #include "key.h"
+#include "ui.h"
 
 // 声明音频接收函数
 extern esp_err_t audio_receiver_start(void);
@@ -424,14 +425,8 @@ esp_err_t init_all_tasks(void) {
     ESP_LOGI(TAG, "Initializing all tasks...");
 
     esp_err_t ret;
-
-    // 初始化LVGL任务
-    ret = init_lvgl_task();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to init LVGL task");
-        return ret;
-    }
-
+    ui_start_animation_update_state(UI_STAGE_STARTING_SERVICES);
+    ui_start_animation_set_progress((float)4 / UI_STAGE_DONE * 100);
     // 初始化后台管理模块
     ret = background_manager_init();
     if (ret != ESP_OK) {
@@ -473,6 +468,8 @@ esp_err_t init_all_tasks(void) {
         return ret;
     }
 
+    ui_start_animation_update_state(UI_STAGE_ALMOST_READY);
+    ui_start_animation_set_progress((float)5 / UI_STAGE_DONE * 100);
     // 初始化音频接收任务（后台服务）
     // ret = init_audio_receiver_task();
     // if (ret != ESP_OK) {
@@ -493,7 +490,8 @@ esp_err_t init_all_tasks(void) {
         ESP_LOGE(TAG, "Failed to init TCP heartbeat server task");
         return ret;
     }
-
+    ui_start_animation_update_state(UI_STAGE_FINALIZING);
+    ui_start_animation_set_progress((float)6 / UI_STAGE_DONE * 100);
     ESP_LOGI(TAG, "All tasks initialized successfully");
     return ESP_OK;
 }

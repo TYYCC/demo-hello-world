@@ -43,6 +43,8 @@ static const ui_animation_text_t* get_current_animation_text(void) {
 static ui_start_anim_finished_cb_t g_finished_cb = NULL;
 static lv_obj_t* g_anim_arc = NULL;
 static lv_timer_t* g_status_timer = NULL;
+static lv_obj_t* g_status_label = NULL;
+static lv_obj_t* g_progress_bar = NULL;
 
 // 动画相关的静态函数
 static void anim_logo_fade_in_cb(void* var, int32_t v) { lv_obj_set_style_opa(var, v, 0); }
@@ -55,6 +57,45 @@ static void anim_rotation_cb(void* var, int32_t v) {
 static void anim_zoom_cb(void* var, int32_t v) { lv_obj_set_style_transform_zoom(var, v, 0); }
 
 static void anim_bar_progress_cb(void* var, int32_t v) { lv_bar_set_value(var, v, LV_ANIM_OFF); }
+
+// 更新状态文本
+void ui_start_animation_update_state(ui_load_stage_t stage) {
+    if (!g_status_label) return;
+
+    const ui_animation_text_t* text = get_current_animation_text();
+
+    switch (stage) {
+        case UI_STAGE_INITIALIZING:
+            lv_label_set_text(g_status_label, text->Initializing);
+            break;
+        case UI_STAGE_LOADING_COMPONENTS:
+            lv_label_set_text(g_status_label, text->Loading_Components);
+            break;
+        case UI_STAGE_STARTING_SERVICES:
+            lv_label_set_text(g_status_label, text->Starting_Services);
+            break;
+        case UI_STAGE_CONFIGURING_HARDWARE:
+            lv_label_set_text(g_status_label, text->Configuring_Hardware);
+            break;
+        case UI_STAGE_ALMOST_READY:
+            lv_label_set_text(g_status_label, text->Almost_Ready);
+            break;
+        case UI_STAGE_FINALIZING:
+            lv_label_set_text(g_status_label, text->Finalizing);
+            break;
+        case UI_STAGE_DONE:
+            // 动画完成
+            if (g_finished_cb) g_finished_cb();
+            return;
+    }
+    set_language_display(g_status_label);
+}
+
+void ui_start_animation_set_progress(uint8_t percent) {
+    if (g_progress_bar) {
+        lv_bar_set_value(g_progress_bar, percent, LV_ANIM_ON);
+    }
+}
 
 static void anim_status_text_timer_cb(lv_timer_t* timer) {
     lv_obj_t* label = (lv_obj_t*)timer->user_data;
@@ -108,6 +149,8 @@ void ui_start_animation_create(lv_obj_t* parent, ui_start_anim_finished_cb_t fin
     // 每次创建时重置静态变量
     g_anim_arc = NULL;
     g_status_timer = NULL;
+    g_status_label = NULL;
+    g_progress_bar = NULL;
 
     // 应用当前主题到屏幕
     theme_apply_to_screen(parent);
@@ -179,6 +222,9 @@ void ui_start_animation_create(lv_obj_t* parent, ui_start_anim_finished_cb_t fin
     lv_obj_align_to(status_label, bar, LV_ALIGN_OUT_BOTTOM_RIGHT, 0, 8);
     set_language_display(status_label);
 
+    g_progress_bar = bar;       // 保存全局
+    g_status_label = status_label; // 保存全局
+
     // 5. 创建版本信息
     lv_obj_t* version_label = lv_label_create(parent);
     lv_label_set_text(version_label, "v2.6.2");
@@ -227,16 +273,16 @@ void ui_start_animation_create(lv_obj_t* parent, ui_start_anim_finished_cb_t fin
     lv_anim_start(&a);
 
     // 进度条动画（缩短时间）
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, bar);
-    lv_anim_set_values(&a, 0, 100);
-    lv_anim_set_time(&a, 2000); // 缩短到2秒
-    lv_anim_set_delay(&a, 200); // 延迟0.2秒开始
-    lv_anim_set_exec_cb(&a, anim_bar_progress_cb);
-    lv_anim_set_ready_cb(&a, all_anims_finished_cb); // 最后一个动画完成时调用总回调
-    lv_anim_set_user_data(&a, parent);
-    lv_anim_start(&a);
+    // lv_anim_init(&a);
+    // lv_anim_set_var(&a, bar);
+    // lv_anim_set_values(&a, 0, 100);
+    // lv_anim_set_time(&a, 2000); // 缩短到2秒
+    // lv_anim_set_delay(&a, 200); // 延迟0.2秒开始
+    // lv_anim_set_exec_cb(&a, anim_bar_progress_cb);
+    // lv_anim_set_ready_cb(&a, all_anims_finished_cb); // 最后一个动画完成时调用总回调
+    // lv_anim_set_user_data(&a, parent);
+    // lv_anim_start(&a);
 
     // 状态文本更新定时器（更新更频繁的状态）
-    g_status_timer = lv_timer_create(anim_status_text_timer_cb, 400, status_label);
+    // g_status_timer = lv_timer_create(anim_status_text_timer_cb, 400, status_label);
 }

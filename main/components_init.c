@@ -28,6 +28,8 @@
 #include "settings_manager.h"
 #include "status_bar_manager.h"
 #include "ui_state_manager.h"
+#include "task_init.h"
+#include "ui.h"
 
 static const char* TAG = "COMPONENTS_INIT";
 
@@ -118,6 +120,31 @@ esp_err_t components_init(void) {
         return ret;
     }
 
+    // 初始化UI状态管理器
+    ui_state_manager_init();
+    ESP_LOGI(TAG, "UI state manager initialized");
+
+    // 初始化设置管理器
+    settings_manager_init();
+    ESP_LOGI(TAG, "Settings manager initialized.");
+
+    // 初始化状态栏管理器
+    ret = status_bar_manager_init();
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Status bar manager initialized");
+    } else {
+        ESP_LOGW(TAG, "Status bar manager init failed: %s", esp_err_to_name(ret));
+    }
+
+    // 初始化LVGL任务,用于实时显示加载动画
+    ret = init_lvgl_task();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to init LVGL task");
+        return ret;
+    }
+    ui_start_animation_update_state(UI_STAGE_INITIALIZING);
+    ui_start_animation_set_progress((float)1 / UI_STAGE_DONE * 100);
+
     // 初始化校准管理器
     ret = calibration_manager_init();
     if (ret == ESP_OK) {
@@ -125,6 +152,8 @@ esp_err_t components_init(void) {
     } else {
         ESP_LOGW(TAG, "Calibration manager init failed: %s", esp_err_to_name(ret));
     }
+    ui_start_animation_update_state(UI_STAGE_LOADING_COMPONENTS);
+    ui_start_animation_set_progress((float)2 / UI_STAGE_DONE * 100);
 
     // 初始化电池监测模块
     ret = battery_monitor_init();
@@ -133,6 +162,8 @@ esp_err_t components_init(void) {
     } else {
         ESP_LOGW(TAG, "Battery monitor init failed: %s", esp_err_to_name(ret));
     }
+    ui_start_animation_update_state(UI_STAGE_CONFIGURING_HARDWARE);
+    ui_start_animation_set_progress((float)3 / UI_STAGE_DONE * 100);
 
     // 初始化LSM6DS3传感器
     ret = lsm6ds3_init();
@@ -148,22 +179,6 @@ esp_err_t components_init(void) {
         ESP_LOGE(TAG, "FT6336G initialization failed: %s", esp_err_to_name(ret));
     } else {
         ESP_LOGI(TAG, "FT6336G initialized successfully");
-    }
-
-    // 初始化UI状态管理器
-    ui_state_manager_init();
-    ESP_LOGI(TAG, "UI state manager initialized");
-
-    // 初始化设置管理器
-    settings_manager_init();
-    ESP_LOGI(TAG, "Settings manager initialized.");
-
-    // 初始化状态栏管理器
-    ret = status_bar_manager_init();
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Status bar manager initialized");
-    } else {
-        ESP_LOGW(TAG, "Status bar manager init failed: %s", esp_err_to_name(ret));
     }
 
     // 其他组件初始化可以在这里添加

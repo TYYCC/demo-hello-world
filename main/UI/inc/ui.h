@@ -15,6 +15,17 @@ extern "C" {
 #include "theme_manager.h"
 #include "ui_state_manager.h"
 
+// 定义加载阶段枚举
+typedef enum {
+    UI_STAGE_INITIALIZING = 0,// 初始化阶段
+    UI_STAGE_LOADING_COMPONENTS,// 加载组件阶段
+    UI_STAGE_STARTING_SERVICES,// 启动服务阶段
+    UI_STAGE_CONFIGURING_HARDWARE,// 配置硬件阶段
+    UI_STAGE_ALMOST_READY,// 准备就绪阶段
+    UI_STAGE_FINALIZING,// 最终阶段
+    UI_STAGE_DONE
+} ui_load_stage_t;
+
 // --- LVGL 主任务 ---
 // 这个任务初始化并运行LVGL的主循环
 void lvgl_main_task(void* pvParameters);
@@ -72,6 +83,18 @@ ui_language_t ui_get_current_language(void);
  * @param lang 要设置的语言
  */
 void ui_set_language(ui_language_t lang);
+
+/**
+ * @brief 设置启动动画进度条百分比
+ * @param percent 百分比值（0-100）
+ */
+void ui_start_animation_set_progress(uint8_t percent);
+
+/**
+ * @brief 更新进度条状态文本
+ * @param stage 当前加载阶段
+ */
+void ui_start_animation_update_state(ui_load_stage_t stage);
 
 // --- 在这里添加您未来的其他UI模块声明 ---
 //
