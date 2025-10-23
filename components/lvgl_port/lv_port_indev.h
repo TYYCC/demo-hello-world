@@ -18,7 +18,7 @@ extern "C" {
 /*********************
  *      DEFINES
  *********************/
-#define USE_FT6336G_TOUCH (0) // 1: FT6336G, 0: XPT2046
+#define USE_FT6336G_TOUCH (1) // 1: FT6336G, 0: XPT2046
 
 /**********************
  *      TYPEDEFS

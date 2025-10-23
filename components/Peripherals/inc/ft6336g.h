@@ -11,7 +11,7 @@ extern "C" {
 #endif
 
 #define FT6336G_I2C_ADDR 0x38
-#define FT6336G_INT_PIN 19
+#define FT6336G_INT_PIN 21
 
 typedef struct {
     uint16_t x;

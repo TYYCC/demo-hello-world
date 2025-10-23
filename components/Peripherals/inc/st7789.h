@@ -29,7 +29,7 @@ extern "C" {
 #define ST7789_PIN_CS           10          // CS 片选
 #define ST7789_PIN_DC           13          // DC 数据/命令选择
 #define ST7789_PIN_RST          14          // RST 复位
-#define ST7789_PIN_BLK          9           // 背光控制 (可选)
+#define ST7789_PIN_BLK          47           // 背光控制 (可选)
 #define ST7789_PIN_POWER        6          // 电源控制
 
 // ========================================

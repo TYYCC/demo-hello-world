@@ -97,9 +97,9 @@ static void touchpad_read(lv_indev_drv_t* indev_drv, lv_indev_data_t* data) {
     static lv_coord_t last_y = 0;
 
     uint8_t num_points;
-    gt911_touch_point_t point;
+    ft6336g_touch_point_t point;
 
-    esp_err_t ret = gt911_read_touch_points(&point, &num_points);
+    esp_err_t ret = ft6336g_read_touch_points(&point, &num_points);
     if (ret == ESP_OK && num_points > 0) {
         last_x = point.x;
         last_y = point.y;

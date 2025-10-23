@@ -18,7 +18,7 @@ extern "C" {
 // ========================================
 // 硬件配置
 // ========================================
-#define BATTERY_ADC_CHANNEL ADC1_CHANNEL_4 // GPIO5
+#define BATTERY_ADC_CHANNEL ADC1_CHANNEL_7 // GPIO8
 #define BATTERY_ADC_ATTEN ADC_ATTEN_DB_12  // 0-3.3V (使用新的衰减值)
 
 // 电池电压分压比例 (如果使用分压电路)
