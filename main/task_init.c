@@ -159,7 +159,7 @@ esp_err_t init_lvgl_task(void) {
 
     BaseType_t result = xTaskCreatePinnedToCore(lvgl_main_task,      // 任务函数
                                                 "LVGL_Main",         // 任务名称
-                                                TASK_STACK_LARGE,    // 堆栈大小 (8KB)
+                                                TASK_STACK_WIFI,    // 堆栈大小 (12KB)
                                                 NULL,                // 参数
                                                 TASK_PRIORITY_HIGH,  // 高优先级
                                                 &s_lvgl_task_handle, // 任务句柄
@@ -492,6 +492,9 @@ esp_err_t init_all_tasks(void) {
     }
     ui_start_animation_update_state(UI_STAGE_FINALIZING);
     ui_start_animation_set_progress((float)6 / UI_STAGE_DONE * 100);
+    vTaskDelay(pdMS_TO_TICKS(200)); // 确保动画有时间更新
+    // 启动动画完成，切换到主界面
+    ui_start_animation_update_state(UI_STAGE_DONE);
     ESP_LOGI(TAG, "All tasks initialized successfully");
     return ESP_OK;
 }

@@ -23,6 +23,7 @@ else()
         # UI相关的文件
         "UI/ui_telemetry.c"
         "UI/ui_start_animation.c"
+    "UI/ui_sync.c"
         "UI/ui_main.c"
         "UI/ui_wifi_settings.c"
         "UI/ui_settings.c"

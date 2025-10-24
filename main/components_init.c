@@ -106,17 +106,17 @@ esp_err_t components_init(void) {
     }
     ESP_ERROR_CHECK(ret);
 
-    // 初始化I2C总线
-    ret = bsp_i2c_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize I2C bus");
-        return ret;
-    }
-
     // 初始化SPIFFS文件系统
     ret = spiffs_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize SPIFFS");
+        return ret;
+    }
+
+    // 初始化I2C总线
+    ret = bsp_i2c_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize I2C bus");
         return ret;
     }
 
@@ -142,6 +142,12 @@ esp_err_t components_init(void) {
         ESP_LOGE(TAG, "Failed to init LVGL task");
         return ret;
     }
+    // 等待开机动画界面真正就绪（避免后续进度更新丢失或延迟显示）
+    extern bool ui_wait_start_anim_ready(TickType_t ticks_to_wait);
+    bool ready = ui_wait_start_anim_ready(pdMS_TO_TICKS(2000));
+    if (!ready) {
+        ESP_LOGW(TAG, "Start animation not ready within 2s, continue anyway");
+    }
     ui_start_animation_update_state(UI_STAGE_INITIALIZING);
     ui_start_animation_set_progress((float)1 / UI_STAGE_DONE * 100);
 
@@ -154,8 +160,9 @@ esp_err_t components_init(void) {
     }
     ui_start_animation_update_state(UI_STAGE_LOADING_COMPONENTS);
     ui_start_animation_set_progress((float)2 / UI_STAGE_DONE * 100);
+    vTaskDelay(pdMS_TO_TICKS(200)); // 确保动画有时间更新
 
-    // 初始化电池监测模块
+    // 初始化电池监测引脚
     ret = battery_monitor_init();
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "Battery monitor initialized");
@@ -164,6 +171,7 @@ esp_err_t components_init(void) {
     }
     ui_start_animation_update_state(UI_STAGE_CONFIGURING_HARDWARE);
     ui_start_animation_set_progress((float)3 / UI_STAGE_DONE * 100);
+    vTaskDelay(pdMS_TO_TICKS(200)); // 确保动画有时间更新
 
     // 初始化LSM6DS3传感器
     ret = lsm6ds3_init();

@@ -6,6 +6,7 @@
  */
 #include "ui.h"
 #include "theme_manager.h"
+#include "ui_sync.h"
 
 typedef struct {
     const char* Initializing;
@@ -45,6 +46,12 @@ static lv_obj_t* g_anim_arc = NULL;
 static lv_timer_t* g_status_timer = NULL;
 static lv_obj_t* g_status_label = NULL;
 static lv_obj_t* g_progress_bar = NULL;
+static lv_obj_t* g_parent_screen = NULL;
+
+// UI就绪与状态缓存（支持跨任务调用的异步更新）
+static volatile bool g_ui_start_ready = false;
+static ui_load_stage_t g_last_stage = UI_STAGE_INITIALIZING;
+static uint8_t g_last_percent = 0;
 
 // 动画相关的静态函数
 static void anim_logo_fade_in_cb(void* var, int32_t v) { lv_obj_set_style_opa(var, v, 0); }
@@ -58,12 +65,10 @@ static void anim_zoom_cb(void* var, int32_t v) { lv_obj_set_style_transform_zoom
 
 static void anim_bar_progress_cb(void* var, int32_t v) { lv_bar_set_value(var, v, LV_ANIM_OFF); }
 
-// 更新状态文本
-void ui_start_animation_update_state(ui_load_stage_t stage) {
+// 内部：根据阶段立即更新状态标签（必须在LVGL上下文中调用）
+static void ui_apply_stage_now(ui_load_stage_t stage) {
     if (!g_status_label) return;
-
     const ui_animation_text_t* text = get_current_animation_text();
-
     switch (stage) {
         case UI_STAGE_INITIALIZING:
             lv_label_set_text(g_status_label, text->Initializing);
@@ -84,40 +89,78 @@ void ui_start_animation_update_state(ui_load_stage_t stage) {
             lv_label_set_text(g_status_label, text->Finalizing);
             break;
         case UI_STAGE_DONE:
-            // 动画完成
+            // 完成：清理自身并跳转
+            if (g_anim_arc) {
+                lv_anim_del(g_anim_arc, NULL);
+                g_anim_arc = NULL;
+            }
+            if (g_status_timer) {
+                lv_timer_del(g_status_timer);
+                g_status_timer = NULL;
+            }
+            if (g_parent_screen) {
+                lv_obj_clean(g_parent_screen);
+                theme_apply_to_screen(g_parent_screen);
+            }
+            g_ui_start_ready = false; // 避免后续更新
             if (g_finished_cb) g_finished_cb();
             return;
     }
     set_language_display(g_status_label);
 }
 
-void ui_start_animation_set_progress(uint8_t percent) {
-    if (g_progress_bar) {
-        lv_bar_set_value(g_progress_bar, percent, LV_ANIM_ON);
+// 内部：异步回调
+typedef struct {
+    ui_load_stage_t stage;
+} ui_stage_req_t;
+
+static void ui_async_apply_stage(void* user_data) {
+    ui_stage_req_t* req = (ui_stage_req_t*)user_data;
+    if (req) {
+        ui_apply_stage_now(req->stage);
+        lv_mem_free(req);
     }
 }
 
-static void anim_status_text_timer_cb(lv_timer_t* timer) {
-    lv_obj_t* label = (lv_obj_t*)timer->user_data;
-    static uint32_t call_count = 0;
-    call_count++;
+// 内部：异步回调
+typedef struct {
+    uint8_t percent;
+} ui_progress_req_t;
 
-    const ui_animation_text_t* text = get_current_animation_text();
-
-    if (call_count <= 2) {
-        lv_label_set_text(label, text->Initializing);
-    } else if (call_count <= 4) {
-        lv_label_set_text(label, text->Loading_Components);
-    } else if (call_count <= 6) {
-        lv_label_set_text(label, text->Starting_Services);
-    } else if (call_count <= 8) {
-        lv_label_set_text(label, text->Configuring_Hardware);
-    } else if (call_count <= 10) {
-        lv_label_set_text(label, text->Almost_Ready);
-    } else {
-        lv_label_set_text(label, text->Finalizing);
+static void ui_async_apply_progress(void* user_data) {
+    ui_progress_req_t* req = (ui_progress_req_t*)user_data;
+    if (req) {
+        if (g_progress_bar) {
+            lv_bar_set_value(g_progress_bar, req->percent, LV_ANIM_ON);
+        }
+        lv_mem_free(req);
     }
-    set_language_display(label);
+}
+
+/**
+ * @brief 更新状态文本（线程安全，可跨任务调用）
+ */
+void ui_start_animation_update_state(ui_load_stage_t stage) {
+    g_last_stage = stage; // 记录最后一次状态
+    if (!g_ui_start_ready) return; // UI未就绪时先缓存
+
+    ui_stage_req_t* req = (ui_stage_req_t*)lv_mem_alloc(sizeof(ui_stage_req_t));
+    if (!req) return;
+    req->stage = stage;
+    lv_async_call(ui_async_apply_stage, req);
+}
+
+/**
+ * @brief 设置进度（线程安全，可跨任务调用）
+ */
+void ui_start_animation_set_progress(uint8_t percent) {
+    g_last_percent = percent; // 记录最后一次进度
+    if (!g_ui_start_ready) return; // UI未就绪时先缓存
+
+    ui_progress_req_t* req = (ui_progress_req_t*)lv_mem_alloc(sizeof(ui_progress_req_t));
+    if (!req) return;
+    req->percent = percent;
+    lv_async_call(ui_async_apply_progress, req);
 }
 
 static void all_anims_finished_cb(lv_anim_t* a) {
@@ -151,6 +194,7 @@ void ui_start_animation_create(lv_obj_t* parent, ui_start_anim_finished_cb_t fin
     g_status_timer = NULL;
     g_status_label = NULL;
     g_progress_bar = NULL;
+    g_parent_screen = parent;
 
     // 应用当前主题到屏幕
     theme_apply_to_screen(parent);
@@ -225,6 +269,16 @@ void ui_start_animation_create(lv_obj_t* parent, ui_start_anim_finished_cb_t fin
     g_progress_bar = bar;       // 保存全局
     g_status_label = status_label; // 保存全局
 
+    // 标记UI已就绪，并应用缓存的最后状态与进度
+    g_ui_start_ready = true;
+    ui_apply_stage_now(g_last_stage);
+    if (g_progress_bar) {
+        lv_bar_set_value(g_progress_bar, g_last_percent, LV_ANIM_OFF);
+    }
+
+    // 通知其他模块：开机动画已就绪
+    ui_signal_start_anim_ready();
+
     // 5. 创建版本信息
     lv_obj_t* version_label = lv_label_create(parent);
     lv_label_set_text(version_label, "v2.6.2");
@@ -272,17 +326,4 @@ void ui_start_animation_create(lv_obj_t* parent, ui_start_anim_finished_cb_t fin
     lv_anim_set_exec_cb(&a, anim_rotation_cb);
     lv_anim_start(&a);
 
-    // 进度条动画（缩短时间）
-    // lv_anim_init(&a);
-    // lv_anim_set_var(&a, bar);
-    // lv_anim_set_values(&a, 0, 100);
-    // lv_anim_set_time(&a, 2000); // 缩短到2秒
-    // lv_anim_set_delay(&a, 200); // 延迟0.2秒开始
-    // lv_anim_set_exec_cb(&a, anim_bar_progress_cb);
-    // lv_anim_set_ready_cb(&a, all_anims_finished_cb); // 最后一个动画完成时调用总回调
-    // lv_anim_set_user_data(&a, parent);
-    // lv_anim_start(&a);
-
-    // 状态文本更新定时器（更新更频繁的状态）
-    // g_status_timer = lv_timer_create(anim_status_text_timer_cb, 400, status_label);
 }

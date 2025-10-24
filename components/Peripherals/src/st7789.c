@@ -110,15 +110,10 @@ static esp_err_t st7789_gpio_init(void)
     io_conf.pin_bit_mask = (1ULL << ST7789_PIN_BLK);
     gpio_config(&io_conf);
     
-    // 电源控制引脚配置
-    io_conf.pin_bit_mask = (1ULL << ST7789_PIN_POWER);
-    gpio_config(&io_conf);
-    
     // 设置初始状态
     gpio_set_level(ST7789_PIN_DC, 0);
     gpio_set_level(ST7789_PIN_RST, 1);
     gpio_set_level(ST7789_PIN_BLK, 0);
-    gpio_set_level(ST7789_PIN_POWER, 0);
     
     ESP_LOGI(TAG, "GPIO initialized successfully");
     return ESP_OK;
@@ -443,11 +438,6 @@ esp_err_t st7789_init(void)
     // 初始化背光PWM
     st7789_backlight_pwm_init();
     
-    // 打开屏幕电源
-    gpio_set_level(ST7789_PIN_POWER, 1);
-    ESP_LOGI(TAG, "Display power enabled");
-    vTaskDelay(pdMS_TO_TICKS(50)); // 等待电源稳定
-    
     // 硬件复位
     st7789_hardware_reset();
     
@@ -478,7 +468,6 @@ esp_err_t st7789_deinit(void)
     // 关闭显示
     st7789_display_enable(false);
     st7789_set_backlight(0);
-    st7789_power_enable(false);  // 关闭电源
     
     // 释放SPI设备
     spi_bus_remove_device(g_st7789_handle.spi_handle);
@@ -646,15 +635,6 @@ void st7789_set_backlight(uint8_t brightness)
     ledc_set_duty(LEDC_LOW_SPEED_MODE, BLK_PWM_CHANNEL, duty);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, BLK_PWM_CHANNEL);
     ESP_LOGD(TAG, "Backlight set to %d%% (duty: %lu)", brightness, duty);
-}
-
-/**
- * @brief 控制电源
- */
-void st7789_power_enable(bool enable)
-{
-    gpio_set_level(ST7789_PIN_POWER, enable ? 1 : 0);
-    ESP_LOGI(TAG, "Display power %s", enable ? "enabled" : "disabled");
 }
 
 /**
