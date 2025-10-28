@@ -41,7 +41,7 @@ esp_err_t spiffs_init(void) {
     ESP_LOGI(TAG, "Initializing SPIFFS");
 
     esp_vfs_spiffs_conf_t conf = {
-        .base_path = "/spiffs", .partition_label = "spiffs", .max_files = 5, .format_if_mount_failed = false};
+        .base_path = "/spiffs", .partition_label = "spiffs", .max_files = 5, .format_if_mount_failed = true};
 
     // 挂载SPIFFS分区
     esp_err_t ret = esp_vfs_spiffs_register(&conf);
@@ -181,8 +181,8 @@ esp_err_t components_init(void) {
         ESP_LOGI(TAG, "LSM6DS3 initialized successfully");
     }
 
-    // 初始化FT6336G触摸控制器
-    ret = ft6336g_init();
+    // 初始化GT911触摸控制器
+    ret = gt911_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "FT6336G initialization failed: %s", esp_err_to_name(ret));
     } else {
