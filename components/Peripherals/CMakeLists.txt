@@ -3,6 +3,7 @@ set(PERIPHERALS_SRCS "")
 if(EN_RECEIVER_MODE)
     set(PERIPHERALS_SRCS 
         "src/ws2812.c"
+        "src/sx1281.c"
     )
     
 else()
@@ -20,6 +21,7 @@ else()
         "src/wifi_manager.c"
         "src/battery_monitor.c"
         "src/i2s_tdm.c"
+        "src/sx1281.c"
     )
 endif()
     idf_component_register(
