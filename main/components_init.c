@@ -107,11 +107,11 @@ esp_err_t components_init(void) {
     ESP_ERROR_CHECK(ret);
 
     // 初始化SPIFFS文件系统
-    ret = spiffs_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize SPIFFS");
-        return ret;
-    }
+    // ret = spiffs_init();
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "Failed to initialize SPIFFS");
+    //     return ret;
+    // }
 
     // 初始化I2C总线
     ret = bsp_i2c_init();
