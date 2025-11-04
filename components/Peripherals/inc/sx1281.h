@@ -74,7 +74,7 @@ static inline sx1281_config_t sx1281_default_config(void) {
         .pin_reset = 5,
         .pin_txen = 45,
         .pin_rxen = 48,
-        .spi_clock_hz = 8000000, // 8 MHz is safe for bring-up
+        .spi_clock_hz = 4000000, // 8 MHz is safe for bring-up
         .install_bus_if_needed = true,
     };
     return cfg;
