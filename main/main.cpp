@@ -112,6 +112,8 @@ void app_main(void) {
 #include <inttypes.h>
 #include <stdio.h>
 
+#include "Arduino.h"
+
 // FreeRTOS 头文件
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -121,10 +123,17 @@ void app_main(void) {
 
 static const char* TAG = "MAIN";
 
+extern "C" {
 extern esp_err_t components_init(void);
+extern void elrs_setup(void);
+extern void elrs_loop(void);
+}
 
-void app_main(void) {
+extern "C" void app_main(void) {
 
+    initArduino();
+    elrs_setup();
+    elrs_loop();
     // 初始化所有组件
     esp_err_t ret = components_init();
     if (ret != ESP_OK) {
@@ -152,15 +161,3 @@ void app_main(void) {
 }
 
 #endif
-
-/**
-
-如果 |X| > 0.75 g 且 |X| > |Y| → 判定为横屏
-
-如果 |Y| > 0.75 g 且 |Y| > |X| → 判定为竖屏
-
-如果 |Z| > 0.8 g → 判定为平放，不旋转
-
-*/
-
-// 第一次提交测试

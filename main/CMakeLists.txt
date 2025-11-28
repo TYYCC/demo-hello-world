@@ -16,7 +16,7 @@ if(EN_RECEIVER_MODE)
 else()
     set(MAIN_SRCS
         #主要启动文件 
-        "main.c"
+        "main.cpp"
         "task_init.c"
         "components_init.c"
 
@@ -84,9 +84,10 @@ else()
     idf_component_register(
         SRCS ${MAIN_SRCS}
         INCLUDE_DIRS "inc" "UI/inc" "app/inc" "app/game" "fonts" "app/Telemetry/inc" "app/image_transfer/inc"
-        REQUIRES lvgl esp_timer lvgl_port Peripherals lz4-dev driver spiffs spi_flash esp_common
+        REQUIRES lvgl esp_timer lvgl_port Peripherals lz4-dev driver spiffs spi_flash esp_common arduino-esp32 esp_wifi esp_system esp_event esp_netif nvs_flash ArduinoJson app_update ESPAsyncWebServer mavlink elrs
     )
     
+    target_link_options(${COMPONENT_LIB} PRIVATE -Wl,--wrap=esp_log_write,--wrap=esp_log_writev)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE EN_RECEIVER_MODE=0)
 endif()
 

@@ -1410,7 +1410,7 @@ static void checkSendLinkStatsToHandset(uint32_t now)
   }
 }
 
-void elrs_setup(void)
+extern "C" void elrs_setup(void)
 {
   if (setupHardwareFromOptions())
   {
@@ -1498,7 +1498,7 @@ void elrs_setup(void)
   }
 }
 
-void elrs_loop(void)
+extern "C" void elrs_loop(void)
 {
   uint32_t now = millis();
 
