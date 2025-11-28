@@ -89,3 +89,12 @@ else()
     
     target_compile_definitions(${COMPONENT_LIB} PRIVATE EN_RECEIVER_MODE=0)
 endif()
+
+add_library(MY_DEFS INTERFACE)
+
+target_compile_definitions(MY_DEFS INTERFACE
+    PLATFORM_ESP32
+    PLATFORM_ESP32_S3
+    RADIO_SX128X
+    TARGET_TX
+)

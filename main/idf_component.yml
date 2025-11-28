@@ -16,4 +16,8 @@ dependencies:
   #   public: true
   lvgl/lvgl: ^8.3.0
   esp_new_jpeg: '*'
-  espressif/esp_tinyusb: ~1.0.0
+  # espressif/esp_tinyusb: ~1.0.0
+  espressif/arduino-esp32: "^3.3.0"
+  espressif/mavlink: "^1.0.0"
+  ESP32Async/ESPAsyncWebServer: ^3.9.0
+  bblanchon/ArduinoJson: ^7.0.0
