@@ -464,7 +464,7 @@ static void tcp_hb_server_task(void* pvParameters) {
         tcp_server_hb_state_t state = tcp_server_hb_get_state();
         if (state == TCP_SERVER_HB_STATE_RUNNING) {
             const tcp_server_hb_stats_t* stats = tcp_server_hb_get_stats();
-            ESP_LOGI(TAG, "TCP HB Server: 活跃客户端=%d, 心跳包=%d", stats->active_clients,
+            ESP_LOGI(TAG, "TCP HB Server: active_clients=%d, heartbeat_received_count=%d", stats->active_clients,
                      stats->heartbeat_received_count);
         } else {
             ESP_LOGW(TAG, "TCP heartbeat server state: %d", state);
