@@ -13,7 +13,7 @@
  *
  * Set LOGGING_UART define to Serial instance to use if not Serial
  **/
-
+#define DEBUG_LOG_VERBOSE
 // DEBUG_LOG_VERBOSE and DEBUG_RX_SCOREBOARD implies DEBUG_LOG
 #if !defined(DEBUG_LOG)
   #if defined(DEBUG_LOG_VERBOSE) || (defined(DEBUG_RX_SCOREBOARD) && TARGET_RX) || defined(DEBUG_INIT)
