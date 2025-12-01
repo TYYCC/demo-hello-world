@@ -28,12 +28,9 @@ static const char* TAG = "TASK_INIT";
 
 // 任务句柄存储
 static TaskHandle_t s_lvgl_task_handle = NULL;
-static TaskHandle_t s_power_task_handle = NULL;
 static TaskHandle_t s_monitor_task_handle = NULL;
-static TaskHandle_t s_battery_task_handle = NULL;
 static TaskHandle_t s_joystick_task_handle = NULL;
 static TaskHandle_t s_wifi_task_handle = NULL;
-static TaskHandle_t s_audio_receiver_task_handle = NULL;
 static TaskHandle_t s_serial_display_task_handle = NULL;
 static TaskHandle_t s_tcp_hb_server_task_handle = NULL;
 
@@ -64,13 +61,6 @@ static void joystick_adc_task(void* pvParameters) {
     }
 }
 
-// 电源管理任务包装
-static void power_management_task(void* pvParameters) {
-    ESP_LOGI(TAG, "Power Management Task started on core %d", xPortGetCoreID());
-    power_management_demo();
-    vTaskDelete(NULL);
-}
-
 // 系统监控任务
 static void system_monitor_task(void* pvParameters) {
     ESP_LOGI(TAG, "System Monitor Task started on core %d", xPortGetCoreID());
@@ -86,12 +76,6 @@ static void system_monitor_task(void* pvParameters) {
         // 任务状态检查
         if (s_lvgl_task_handle) {
             ESP_LOGI(TAG, "LVGL task: Running");
-        }
-        if (s_power_task_handle) {
-            ESP_LOGI(TAG, "Power task: Running");
-        }
-        if (s_battery_task_handle) {
-            ESP_LOGI(TAG, "Battery task: Running");
         }
 
         ESP_LOGI(TAG, "==================");
@@ -116,38 +100,6 @@ static void wifi_manager_task(void* pvParameters) {
 
     // Task can terminate after starting WiFi connection process
     vTaskDelete(NULL);
-}
-
-// 电池监测任务（现在由后台管理模块处理，此任务主要用于日志记录）
-static void battery_monitor_task(void* pvParameters) {
-    ESP_LOGI(TAG, "Battery Monitor Task started on core %d", xPortGetCoreID());
-
-    // 等待系统初始化完成
-    vTaskDelay(pdMS_TO_TICKS(5000)); // 增加等待时间，确保UI完全初始化
-
-    while (1) {
-        // 获取后台电池信息用于日志记录
-        background_battery_info_t battery_info;
-        esp_err_t ret = background_manager_get_battery(&battery_info);
-
-        if (ret == ESP_OK && battery_info.is_valid) {
-            ESP_LOGI(TAG, "Battery: %dmV, %d%%, Low: %d, Critical: %d", battery_info.voltage_mv,
-                     battery_info.percentage, battery_info.is_low_battery,
-                     battery_info.is_critical);
-
-            // 检查低电量警告
-            if (battery_info.is_critical) {
-                ESP_LOGW(TAG, "CRITICAL BATTERY LEVEL: %d%%", battery_info.percentage);
-            } else if (battery_info.is_low_battery) {
-                ESP_LOGW(TAG, "LOW BATTERY LEVEL: %d%%", battery_info.percentage);
-            }
-        } else {
-            ESP_LOGW(TAG, "Failed to get battery info from background manager");
-        }
-
-        // 每10秒记录一次日志
-        vTaskDelay(pdMS_TO_TICKS(10000)); // 10秒
-    }
 }
 
 // 任务初始化函数实现
@@ -195,30 +147,6 @@ esp_err_t init_joystick_adc_task(void) {
     }
 
     ESP_LOGI(TAG, "Joystick ADC task created successfully on Core 0");
-    return ESP_OK;
-}
-
-esp_err_t init_power_management_task(void) {
-    if (s_power_task_handle != NULL) {
-        ESP_LOGW(TAG, "Power management task already running");
-        return ESP_OK;
-    }
-
-    BaseType_t result = xTaskCreatePinnedToCore(power_management_task, // 任务函数
-                                                "Power_Mgmt",          // 任务名称
-                                                TASK_STACK_MEDIUM,     // 堆栈大小 (4KB)
-                                                NULL,                  // 参数
-                                                TASK_PRIORITY_LOW,     // 低优先级
-                                                &s_power_task_handle,  // 任务句柄
-                                                0                      // 绑定到Core 0 (系统核心)
-    );
-
-    if (result != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create power management task");
-        return ESP_ERR_NO_MEM;
-    }
-
-    ESP_LOGI(TAG, "Power management task created successfully on Core 0");
     return ESP_OK;
 }
 
@@ -270,51 +198,6 @@ esp_err_t init_wifi_manager_task(void) {
     return ESP_OK;
 }
 
-esp_err_t init_battery_monitor_task(void) {
-    if (s_battery_task_handle != NULL) {
-        ESP_LOGW(TAG, "Battery monitor task already running");
-        return ESP_OK;
-    }
-
-    BaseType_t result = xTaskCreatePinnedToCore(battery_monitor_task,   // 任务函数
-                                                "Battery_Monitor",      // 任务名称
-                                                TASK_STACK_MEDIUM,      // 堆栈大小 (4KB)
-                                                NULL,                   // 参数
-                                                TASK_PRIORITY_LOW,      // 低优先级
-                                                &s_battery_task_handle, // 任务句柄
-                                                0                       // 绑定到Core 0
-    );
-
-    if (result != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create battery monitor task");
-        return ESP_ERR_NO_MEM;
-    }
-
-    ESP_LOGI(TAG, "Battery monitor task created successfully on Core 0");
-    return ESP_OK;
-}
-
-// 音频接收任务包装
-static void audio_receiver_task(void* pvParameters) {
-    ESP_LOGI(TAG, "Audio Receiver Task started on core %d", xPortGetCoreID());
-
-    // 等待WiFi连接
-    vTaskDelay(pdMS_TO_TICKS(5000));
-
-    esp_err_t ret = audio_receiver_start();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start audio receiver: %s", esp_err_to_name(ret));
-    } else {
-        ESP_LOGI(TAG, "Audio receiver started successfully on TCP port 7557");
-    }
-
-    // 任务保持运行，监控音频接收状态
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(30000)); // 30秒检查一次
-        ESP_LOGI(TAG, "Audio receiver running normally");
-    }
-}
-
 // 串口显示任务包装
 static void serial_display_task(void* pvParameters) {
     ESP_LOGI(TAG, "Serial Display Task started on core %d", xPortGetCoreID());
@@ -347,30 +230,6 @@ static void serial_display_task(void* pvParameters) {
             serial_display_start(8080);
         }
     }
-}
-
-esp_err_t init_audio_receiver_task(void) {
-    if (s_audio_receiver_task_handle != NULL) {
-        ESP_LOGW(TAG, "Audio receiver task already running");
-        return ESP_OK;
-    }
-
-    BaseType_t result = xTaskCreatePinnedToCore(audio_receiver_task,           // 任务函数
-                                                "Audio_Receiver",              // 任务名称
-                                                TASK_STACK_LARGE,              // 堆栈大小 (8KB)
-                                                NULL,                          // 参数
-                                                TASK_PRIORITY_NORMAL,          // 普通优先级
-                                                &s_audio_receiver_task_handle, // 任务句柄
-                                                1                              // 绑定到Core 1
-    );
-
-    if (result != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create audio receiver task");
-        return ESP_ERR_NO_MEM;
-    }
-
-    ESP_LOGI(TAG, "Audio receiver task created successfully on Core 1");
-    return ESP_OK;
 }
 
 esp_err_t init_serial_display_task(void) {
@@ -441,13 +300,6 @@ esp_err_t init_all_tasks(void) {
         return ret;
     }
 
-    // 初始化电池监测任务
-    ret = init_battery_monitor_task();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to init battery monitor task");
-        return ret;
-    }
-
     // 初始化WiFi管理任务
     ret = init_wifi_manager_task();
     if (ret != ESP_OK) {
@@ -467,15 +319,8 @@ esp_err_t init_all_tasks(void) {
         ESP_LOGE(TAG, "Failed to init LSM6DS3 control task");
         return ret;
     }
-
     ui_start_animation_update_state(UI_STAGE_ALMOST_READY);
     ui_start_animation_set_progress((float)5 / UI_STAGE_DONE * 100);
-    // 初始化音频接收任务（后台服务）
-    // ret = init_audio_receiver_task();
-    // if (ret != ESP_OK) {
-    //     ESP_LOGE(TAG, "Failed to init audio receiver task");
-    //     return ret;
-    // }
 
     // 初始化串口显示任务（后台服务）
     ret = init_serial_display_task();
@@ -513,12 +358,6 @@ esp_err_t stop_all_tasks(void) {
         ESP_LOGI(TAG, "LVGL task stopped");
     }
 
-    if (s_power_task_handle) {
-        vTaskDelete(s_power_task_handle);
-        s_power_task_handle = NULL;
-        ESP_LOGI(TAG, "Power management task stopped");
-    }
-
     if (s_monitor_task_handle) {
         vTaskDelete(s_monitor_task_handle);
         s_monitor_task_handle = NULL;
@@ -531,23 +370,10 @@ esp_err_t stop_all_tasks(void) {
         ESP_LOGI(TAG, "Joystick ADC task stopped");
     }
 
-    if (s_battery_task_handle) {
-        vTaskDelete(s_battery_task_handle);
-        s_battery_task_handle = NULL;
-        ESP_LOGI(TAG, "Battery monitor task stopped");
-    }
-
     if (s_wifi_task_handle) {
         vTaskDelete(s_wifi_task_handle);
         s_wifi_task_handle = NULL;
         ESP_LOGI(TAG, "WiFi manager task stopped");
-    }
-
-    if (s_audio_receiver_task_handle) {
-        audio_receiver_stop(); // 先停止音频接收服务
-        vTaskDelete(s_audio_receiver_task_handle);
-        s_audio_receiver_task_handle = NULL;
-        ESP_LOGI(TAG, "Audio receiver task stopped");
     }
 
     if (s_serial_display_task_handle) {
@@ -649,12 +475,9 @@ static void tcp_hb_server_task(void* pvParameters) {
 void list_running_tasks(void) {
     ESP_LOGI(TAG, "=== Running Tasks ===");
     ESP_LOGI(TAG, "LVGL Task: %s", s_lvgl_task_handle ? "Running" : "Stopped");
-    ESP_LOGI(TAG, "Power Task: %s", s_power_task_handle ? "Running" : "Stopped");
     ESP_LOGI(TAG, "Monitor Task: %s", s_monitor_task_handle ? "Running" : "Stopped");
     ESP_LOGI(TAG, "Joystick Task: %s", s_joystick_task_handle ? "Running" : "Stopped");
-    ESP_LOGI(TAG, "Battery Task: %s", s_battery_task_handle ? "Running" : "Stopped");
     ESP_LOGI(TAG, "WiFi Task: %s", s_wifi_task_handle ? "Running" : "Stopped");
-    ESP_LOGI(TAG, "Audio Receiver Task: %s", s_audio_receiver_task_handle ? "Running" : "Stopped");
     ESP_LOGI(TAG, "Serial Display Task: %s", s_serial_display_task_handle ? "Running" : "Stopped");
     ESP_LOGI(TAG, "TCP HB Server Task: %s", s_tcp_hb_server_task_handle ? "Running" : "Stopped");
     ESP_LOGI(TAG, "==================");
@@ -662,11 +485,8 @@ void list_running_tasks(void) {
 
 // 任务句柄获取函数
 TaskHandle_t get_lvgl_task_handle(void) { return s_lvgl_task_handle; }
-TaskHandle_t get_power_task_handle(void) { return s_power_task_handle; }
 TaskHandle_t get_monitor_task_handle(void) { return s_monitor_task_handle; }
-TaskHandle_t get_battery_task_handle(void) { return s_battery_task_handle; }
 TaskHandle_t get_joystick_task_handle(void) { return s_joystick_task_handle; }
 TaskHandle_t get_wifi_task_handle(void) { return s_wifi_task_handle; }
-TaskHandle_t get_audio_receiver_task_handle(void) { return s_audio_receiver_task_handle; }
 TaskHandle_t get_serial_display_task_handle(void) { return s_serial_display_task_handle; }
 TaskHandle_t get_tcp_hb_server_task_handle(void) { return s_tcp_hb_server_task_handle; }

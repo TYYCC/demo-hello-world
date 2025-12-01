@@ -123,17 +123,26 @@ void app_main(void) {
 
 static const char* TAG = "MAIN";
 
+#define ELRS_EN
+
+#if defined(ELRS_EN)
 extern "C" {
-extern esp_err_t components_init(void);
 extern void elrs_setup(void);
 extern void elrs_loop(void);
+}
+#endif
+
+extern "C" {
+extern esp_err_t components_init(void);
 }
 
 extern "C" void app_main(void) {
 
+#if defined(ELRS_EN)
     initArduino();
     elrs_setup();
     elrs_loop();
+#endif
     // 初始化所有组件
     esp_err_t ret = components_init();
     if (ret != ESP_OK) {

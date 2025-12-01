@@ -263,7 +263,7 @@ void ui_start_animation_create(lv_obj_t* parent, ui_start_anim_finished_cb_t fin
     else
         lv_label_set_text(status_label, "Initializing...");
     lv_obj_set_style_text_color(status_label, lv_color_hex(0x666666), 0); // 中灰色
-    lv_obj_align_to(status_label, bar, LV_ALIGN_OUT_BOTTOM_RIGHT, 0, 8);
+    lv_obj_align_to(status_label, bar, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
     set_language_display(status_label);
 
     g_progress_bar = bar;       // 保存全局

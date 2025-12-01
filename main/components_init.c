@@ -30,7 +30,6 @@
 #include "ui_state_manager.h"
 #include "task_init.h"
 #include "ui.h"
-#include "sx1281.h"
 
 static const char* TAG = "COMPONENTS_INIT";
 
@@ -191,20 +190,6 @@ esp_err_t components_init(void) {
     }
 
     // 其他组件初始化可以在这里添加
-
-    // 初始化 LORA (SX1281) 引脚与SPI，读取一次状态作为握手
-    sx1281_handle_t lora = NULL;
-    esp_err_t lora_ret = sx1281_create_default(&lora);
-    if (lora_ret == ESP_OK) {
-        uint8_t status = 0;
-        if (sx1281_get_status(lora, &status) == ESP_OK) {
-            ESP_LOGI(TAG, "SX1281 initialized, status=0x%02X", status);
-        } else {
-            ESP_LOGW(TAG, "SX1281 initialized but status read failed");
-        }
-    } else {
-        ESP_LOGW(TAG, "SX1281 init skipped/failed: %s", esp_err_to_name(lora_ret));
-    }
 
     ESP_LOGI(TAG, "All components initialized successfully");
     return ESP_OK;
