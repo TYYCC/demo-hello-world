@@ -108,6 +108,7 @@ void app_main(void) {
 #include "esp_chip_info.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_task_wdt.h"
 #include "sdkconfig.h"
 #include <inttypes.h>
 #include <stdio.h>
@@ -137,32 +138,42 @@ extern esp_err_t components_init(void);
 }
 
 extern "C" void app_main(void) {
-
 #if defined(ELRS_EN)
     initArduino();
     elrs_setup();
-    elrs_loop();
+    esp_task_wdt_config_t wdt_config = {
+        .timeout_ms = 5000,
+        .idle_core_mask = 0,
+        .trigger_panic = true,
+    };
+    esp_task_wdt_init(&wdt_config);
+    esp_task_wdt_add(NULL);
 #endif
+
     // 初始化所有组件
-    esp_err_t ret = components_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize components: %s", esp_err_to_name(ret));
-        return;
-    }
+    // esp_err_t ret = components_init();
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "Failed to initialize components: %s", esp_err_to_name(ret));
+    //     return;
+    // }
 
-    // 初始化任务管理
-    ret = init_all_tasks();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize tasks: %s", esp_err_to_name(ret));
-        return;
-    }
+    // // 初始化任务管理
+    // ret = init_all_tasks();
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "Failed to initialize tasks: %s", esp_err_to_name(ret));
+    //     return;
+    // }
 
-    // 显示当前运行的任务
-    vTaskDelay(pdMS_TO_TICKS(1000)); // 等待任务启动
-    list_running_tasks();
+    // // 显示当前运行的任务
+    // vTaskDelay(pdMS_TO_TICKS(1000)); // 等待任务启动
+    // list_running_tasks();
 
     // 主任务进入轻量级监控循环
     while (1) {
+
+#if defined(ELRS_EN)
+        elrs_loop();
+#endif
         ESP_LOGI(TAG, "Main loop: System running normally, free heap: %lu bytes",
                  (unsigned long)esp_get_free_heap_size());
         vTaskDelay(pdMS_TO_TICKS(30000)); // 30秒打印一次状态
