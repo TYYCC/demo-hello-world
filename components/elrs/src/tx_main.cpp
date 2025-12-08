@@ -1614,3 +1614,84 @@ extern "C" void elrs_loop(void)
     otaConnector.pumpSender();
   }
 }
+
+//==============================================================================
+// ELRS TX Public API - 用于从外部设置通道数据
+//==============================================================================
+
+/**
+ * @brief 设置单个通道的值
+ * @param channel 通道号 (0-15)
+ * @param value CRSF 格式的值 (172-1811, 中间值 992)
+ *              172  = 最小值 (约 1000us PWM)
+ *              992  = 中间值 (1500us PWM)
+ *              1811 = 最大值 (约 2000us PWM)
+ */
+extern "C" void elrs_set_channel(uint8_t channel, uint16_t value)
+{
+  if (channel < CRSF_NUM_CHANNELS) {
+    ChannelData[channel] = value;
+  }
+}
+
+/**
+ * @brief 批量设置多个通道的值
+ * @param values 通道值数组 (CRSF 格式)
+ * @param count 要设置的通道数量 (最大 16)
+ */
+extern "C" void elrs_set_channels(const uint16_t *values, uint8_t count)
+{
+  if (count > CRSF_NUM_CHANNELS) {
+    count = CRSF_NUM_CHANNELS;
+  }
+  for (uint8_t i = 0; i < count; i++) {
+    ChannelData[i] = values[i];
+  }
+}
+
+/**
+ * @brief 获取单个通道的当前值
+ * @param channel 通道号 (0-15)
+ * @return CRSF 格式的通道值
+ */
+extern "C" uint16_t elrs_get_channel(uint8_t channel)
+{
+  if (channel < CRSF_NUM_CHANNELS) {
+    return ChannelData[channel];
+  }
+  return CRSF_CHANNEL_VALUE_MID;
+}
+
+/**
+ * @brief 将所有通道设置为中间值
+ */
+extern "C" void elrs_reset_channels(void)
+{
+  for (uint8_t i = 0; i < CRSF_NUM_CHANNELS; i++) {
+    ChannelData[i] = CRSF_CHANNEL_VALUE_MID;
+  }
+}
+
+/**
+ * @brief 辅助函数：将 PWM 微秒值 (1000-2000) 转换为 CRSF 值 (172-1811)
+ * @param us PWM 微秒值 (1000-2000)
+ * @return CRSF 格式的值
+ */
+extern "C" uint16_t elrs_us_to_crsf(uint16_t us)
+{
+  // 限制范围
+  if (us < 1000) us = 1000;
+  if (us > 2000) us = 2000;
+  // 线性映射: 1000us -> 191, 2000us -> 1792
+  return (uint16_t)(((uint32_t)(us - 1000) * (1792 - 191)) / 1000 + 191);
+}
+
+/**
+ * @brief 检查连接状态
+ * @return 1 = 已连接到接收机, 0 = 未连接
+ */
+extern "C" int elrs_is_connected(void)
+{
+  return (connectionState == connected) ? 1 : 0;
+}
+

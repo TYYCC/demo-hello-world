@@ -17,10 +17,13 @@
     "power_max": 6,
     "power_default": 3,
     "power_values": [0, 1, 2, 3, 4, 5, 6, 7],
-    "led_rgb": 48,
-    "led_rgb_isgrb": true,
+    "led_rgb": -1,
+    "led_rgb_isgrb": false,
     "joystick": -1,
     "button": -1,
     "screen_type": 0,
-    "use_backpack": false
+    "use_backpack": false,
+    "debug_backpack_baud": -1,
+    "debug_backpack_rx": -1,
+    "debug_backpack_tx": -1
 }
