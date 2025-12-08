@@ -26,11 +26,8 @@
 #endif
 
 extern Stream *BackpackOrLogStrm;
-#if defined(TARGET_TX) && defined(PLATFORM_ESP32_S3)
-#define LOGGING_UART (Serial)
-#else
+// 统一使用 BackpackOrLogStrm 作为日志输出，便于在运行时配置
 #define LOGGING_UART (*BackpackOrLogStrm)
-#endif
 
 // #define LOG_USE_PROGMEM
 

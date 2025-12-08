@@ -1263,10 +1263,19 @@ static void setupSerial()
     serialPort = new HardwareSerial(2);
     ((HardwareSerial *)serialPort)->begin(BACKPACK_LOGGING_BAUD, SERIAL_8N1, GPIO_PIN_DEBUG_RX, GPIO_PIN_DEBUG_TX);
   }
+#if defined(PLATFORM_ESP32_S3)
+  // 对于 S3，使用 Serial（USB CDC）作为日志输出
+  else
+  {
+    Serial.begin(115200);
+    serialPort = &Serial;
+  }
+#else
   else
   {
     serialPort = new NullStream();
   }
+#endif
 #elif defined(PLATFORM_ESP8266)
   Stream *serialPort;
   if (GPIO_PIN_DEBUG_TX != UNDEF_PIN)
@@ -1317,11 +1326,12 @@ static void setupSerial()
  ***/
 static void setupTarget()
 {
-#if defined(PLATFORM_ESP32)
+#if defined(PLATFORM_ESP32) && !defined(PLATFORM_ESP32_S3)
   // arduino-espressif32 HardwareSerial's constructor for UART0 saves and attaches to GPIO 1 and 3, which
   // will reset any other use of them when begin() is actually called for UART0 by CRSFHandset/SerialIO.
   // Calling end() here, will call _uartDetachPins() on the underlying UART implementation so they won't
   // be saved later (fixed upstream, coming someday)
+  // 注意：S3 使用 USB CDC 作为 Serial，不需要调用 end()
   Serial.end();
 #endif
 
@@ -1337,7 +1347,7 @@ static void setupTarget()
   }
 
   setupSerial();
-  setupTargetCommon();
+  // setupTargetCommon();
 }
 
 bool setupHardwareFromOptions()
@@ -1415,6 +1425,9 @@ extern "C" void elrs_setup(void)
   if (setupHardwareFromOptions())
   {
     setupTarget();
+#if defined(PLATFORM_ESP32_S3)
+    Serial.println("[ELRS] setupTarget() completed, BackpackOrLogStrm initialized");
+#endif
     // Register the devices with the framework
     devicesRegister(ui_devices, ARRAY_SIZE(ui_devices));
     // // Initialise the devices
@@ -1481,7 +1494,14 @@ extern "C" void elrs_setup(void)
   {
     // In the failure case we set the logging to the null logger so nothing crashes
     // if it decides to log something
+#if defined(PLATFORM_ESP32_S3)
+    // 对于 S3，即使初始化失败也使用 Serial 输出日志便于调试
+    Serial.begin(115200);
+    BackpackOrLogStrm = &Serial;
+    Serial.println("[ELRS] WARNING: setupHardwareFromOptions() failed!");
+#else
     BackpackOrLogStrm = new NullStream();
+#endif
     TxUSB = BackpackOrLogStrm;
   }
 

@@ -139,15 +139,29 @@ extern esp_err_t components_init(void);
 
 extern "C" void app_main(void) {
 #if defined(ELRS_EN)
+    // 静默 Arduino HAL 的 WDT 相关警告日志（disableCore*WDT 会报 "Failed to remove"）
+    // Arduino HAL 使用空 TAG，所以用 "*" 临时降低全局错误日志等级，初始化后恢复
+    esp_log_level_t original_level = esp_log_level_get("*");
+    esp_log_level_set("*", ESP_LOG_WARN);  // 临时只显示警告及以上
+    
+    ESP_LOGW(TAG, "=== ELRS TX Module Initialization ===");
+    ESP_LOGW(TAG, "Initializing Arduino framework...");
     initArduino();
+    
+    // 初始化 Arduino Serial 用于 ELRS 日志输出（通过 USB CDC）
+    Serial.begin(115200);
+    Serial.setDebugOutput(true);  // 允许调试输出
+    delay(100);  // 等待串口稳定
+    Serial.println("\n[ELRS] Serial initialized for ELRS debug output");
+    
+    ESP_LOGW(TAG, "Arduino framework initialized");
+    
+    ESP_LOGW(TAG, "Starting ELRS setup...");
     elrs_setup();
-    esp_task_wdt_config_t wdt_config = {
-        .timeout_ms = 5000,
-        .idle_core_mask = 0,
-        .trigger_panic = true,
-    };
-    esp_task_wdt_init(&wdt_config);
-    esp_task_wdt_add(NULL);
+    
+    // 恢复日志等级
+    esp_log_level_set("*", original_level);
+    
 #endif
 
     // 初始化所有组件
@@ -174,8 +188,9 @@ extern "C" void app_main(void) {
 #if defined(ELRS_EN)
         elrs_loop();
 #endif
-        ESP_LOGI(TAG, "Main loop: System running normally, free heap: %lu bytes",
-                 (unsigned long)esp_get_free_heap_size());
+        // ESP_LOGI(TAG, "Main loop: System running normally, free heap: %lu bytes",
+        //          (unsigned long)esp_get_free_heap_size());
+        ESP_LOGI(TAG, "Main loop: System running normally");
         vTaskDelay(pdMS_TO_TICKS(30000)); // 30秒打印一次状态
     }
 }
