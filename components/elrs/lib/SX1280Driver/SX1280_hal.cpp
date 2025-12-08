@@ -54,7 +54,10 @@ void SX1280Hal::init()
         pinMode(GPIO_PIN_BUSY_2, INPUT);
     }
 
-    pinMode(GPIO_PIN_DIO1, INPUT);
+    if (GPIO_PIN_DIO1 != UNDEF_PIN)
+    {
+        pinMode(GPIO_PIN_DIO1, INPUT);
+    }
     if (GPIO_PIN_DIO1_2 != UNDEF_PIN)
     {
         pinMode(GPIO_PIN_DIO1_2, INPUT);
@@ -85,7 +88,10 @@ void SX1280Hal::init()
 #endif
 
     //attachInterrupt(digitalPinToInterrupt(GPIO_PIN_BUSY), this->busyISR, CHANGE); //not used atm
-    attachInterrupt(digitalPinToInterrupt(GPIO_PIN_DIO1), this->dioISR_1, RISING);
+    if (GPIO_PIN_DIO1 != UNDEF_PIN)
+    {
+        attachInterrupt(digitalPinToInterrupt(GPIO_PIN_DIO1), this->dioISR_1, RISING);
+    }
     if (GPIO_PIN_DIO1_2 != UNDEF_PIN)
     {
         attachInterrupt(digitalPinToInterrupt(GPIO_PIN_DIO1_2), this->dioISR_2, RISING);

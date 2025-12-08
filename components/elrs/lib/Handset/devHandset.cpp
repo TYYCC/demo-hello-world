@@ -5,6 +5,7 @@
 #include "CRSFHandset.h"
 #include "POWERMGNT.h"
 #include "devHandset.h"
+#include "logging.h"
 
 #include "CRSFEndpoint.h"
 
@@ -17,6 +18,12 @@ Handset *handset;
 static bool initialize()
 {
 #if defined(PLATFORM_ESP32)
+    // 如果串口引脚都未定义，跳过 handset 初始化
+    if (GPIO_PIN_RCSIGNAL_RX == UNDEF_PIN && GPIO_PIN_RCSIGNAL_TX == UNDEF_PIN)
+    {
+        DBGLN("No RCSIGNAL pins defined, skipping Handset initialization");
+        return false;  // 返回 false 禁用此设备
+    }
     if (GPIO_PIN_RCSIGNAL_RX == GPIO_PIN_RCSIGNAL_TX)
     {
         handset = new AutoDetect();

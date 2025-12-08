@@ -389,7 +389,7 @@ void TXModuleEndpoint::sendELRSstatus(const crsf_addr_e origin)
 
   setWarningFlag(LUA_FLAG_MODEL_MATCH, connectionState == connected && connectionHasModelMatch == false);
   setWarningFlag(LUA_FLAG_CONNECTED, connectionState == connected);
-  setWarningFlag(LUA_FLAG_ISARMED, handset->IsArmed());
+  setWarningFlag(LUA_FLAG_ISARMED, handset && handset->IsArmed());
 
   params->pktsBad = CRSFHandset::BadPktsCountResult;
   params->pktsGood = htobe16(CRSFHandset::GoodPktsCountResult);
@@ -753,7 +753,7 @@ void TXModuleEndpoint::registerParameters()
             }
           }
         }
-        recalculatePacketRateOptions(handset->getMinPacketInterval());
+        recalculatePacketRateOptions(handset ? handset->getMinPacketInterval() : 0);
       }
     });
 #endif
@@ -999,7 +999,7 @@ void TXModuleEndpoint::updateParameters()
   }
   setTextSelectionValue(&luaRFBand, rfMode);
 #endif
-  recalculatePacketRateOptions(handset->getMinPacketInterval());
+  recalculatePacketRateOptions(handset ? handset->getMinPacketInterval() : 0);
   setTextSelectionValue(&luaAirRate, RATE_MAX - 1 - currentRate);
 
   setTextSelectionValue(&luaTlmRate, config.GetTlm());

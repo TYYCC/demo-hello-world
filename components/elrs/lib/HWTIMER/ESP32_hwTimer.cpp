@@ -29,7 +29,7 @@ void ICACHE_RAM_ATTR hwTimer::init(void (*callbackTick)(), void (*callbackTock)(
     {
         hwTimer::callbackTick = callbackTick;
         hwTimer::callbackTock = callbackTock;
-        timer = timerBegin((APB_CLK_FREQ / 1000000 / HWTIMER_TICKS_PER_US));
+        timer = timerBegin(1000000 * HWTIMER_TICKS_PER_US);
         timerAttachInterrupt(timer, hwTimer::callback);
         DBGLN("hwTimer Init");
     }
@@ -49,7 +49,7 @@ void ICACHE_RAM_ATTR hwTimer::resume()
 {
     if (timer && !running)
     {
-        // The timer must be restarted so that the new timerAlarmWrite() period is set.
+        // The timer must be restarted so that the new timerAlarm() period is set.
         timerRestart(timer);
 #if defined(TARGET_TX)
         timerAlarm(timer, HWtimerInterval, true, 0);
@@ -61,7 +61,8 @@ void ICACHE_RAM_ATTR hwTimer::resume()
         // is fired immediately
         // Unlike the 8266 timer, the ESP32 timer can be started without delay.
         // It does not interrupt the currently running IsrCallback(), but triggers immediately once it has completed.
-        timerAlarmWrite(timer, 0 * HWTIMER_TICKS_PER_US, true);
+        // Arduino-ESP32 3.x: timerAlarm(timer, alarm_value, autoreload, reload_count)
+        timerAlarm(timer, 0, true, 0);
 #endif
         running = true;
         timerStart(timer);
@@ -100,13 +101,14 @@ void ICACHE_RAM_ATTR hwTimer::callback(void)
         uint32_t NextInterval = (HWtimerInterval >> 1) + FreqOffset;
         if (hwTimer::isTick)
         {
-            timerAlarmWrite(timer, NextInterval, true);
+            // Arduino-ESP32 3.x: timerAlarm(timer, alarm_value, autoreload, reload_count)
+            timerAlarm(timer, NextInterval, true, 0);
             hwTimer::callbackTick();
         }
         else
         {
             NextInterval += PhaseShift;
-            timerAlarmWrite(timer, NextInterval, true);
+            timerAlarm(timer, NextInterval, true, 0);
             PhaseShift = 0;
             hwTimer::callbackTock();
         }

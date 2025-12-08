@@ -1,7 +1,9 @@
 {
     "customised": true,
+    "serial_rx": -1,
+    "serial_tx": -1,
     "radio_busy": 15,
-    "radio_dio1": -1,
+    "radio_dio1": 18,
     "radio_miso": 39,
     "radio_mosi": 2,
     "radio_nss": 16,

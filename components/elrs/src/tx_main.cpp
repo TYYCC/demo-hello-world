@@ -100,12 +100,14 @@ TXOTAConnector otaConnector;
 TXUSBConnector usbConnector;
 CRSFParser crsfParser;
 
+// 注意: ESP-IDF 的 app_main() 运行在 core 0，所以所有设备都分配给 core 0
+// 原 ELRS 设计是从 Arduino setup() 调用，运行在 core 1
 device_affinity_t ui_devices[] = {
-  {&Handset_device, 1},
+  {&Handset_device, 0},  // 改为 core 0
   // {&LED_device, 0},
   // {&RGB_device, 0},
-  {&TXLUA_device, 1},
-  // {&ADC_device, 1},
+  {&TXLUA_device, 0},    // 改为 core 0
+  // {&ADC_device, 0},
   {&WIFI_device, 0},
   {&Button_device, 0},
 #if defined(PLATFORM_ESP32)
@@ -361,7 +363,7 @@ expresslrs_tlm_ratio_e ICACHE_RAM_ATTR UpdateTlmRatioEffective()
   // If Armed, telemetry is disabled, otherwise use STD
   else if (ratioConfigured == TLM_RATIO_DISARMED)
   {
-    if (handset->IsArmed())
+    if (handset && handset->IsArmed())
     {
       retVal = TLM_RATIO_NO_TLM;
       // Avoid updating ExpressLRS_currTlmDenom until connectionState == disconnected
@@ -424,7 +426,7 @@ void ICACHE_RAM_ATTR GenerateSyncPacketData(OTA_Sync_s * const syncPtr)
 
 uint8_t adjustPacketRateForBaud(const uint8_t rateIndex)
 {
-  return get_elrs_HandsetRate_max(rateIndex, handset->getMinPacketInterval());
+  return get_elrs_HandsetRate_max(rateIndex, handset ? handset->getMinPacketInterval() : 0);
 }
 
 uint8_t adjustSwitchModeForAirRate(OtaSwitchMode_e eSwitchMode, uint8_t packetSize)
@@ -508,7 +510,7 @@ void SetRFLinkRate(uint8_t index) // Set speed of RF link
   ExpressLRS_currAirRate_RFperfParams = RFperf;
   linkStats.rf_Mode = ModParams->enum_rate;
 
-  handset->setPacketInterval(interval * ExpressLRS_currAirRate_Modparams->numOfSends);
+  if (handset) handset->setPacketInterval(interval * ExpressLRS_currAirRate_Modparams->numOfSends);
   setConnectionState(disconnected);
   rfModeLastChangedMS = millis();
 }
@@ -519,7 +521,7 @@ void ICACHE_RAM_ATTR SendRCdataToRF()
   // *Do* send data if a packet has never been received from handset and the timer is running
   // this is the case when bench testing and TXing without a handset
   bool dontSendChannelData = false;
-  uint32_t lastRcData = handset->GetRCdataLastRecv();
+  uint32_t lastRcData = handset ? handset->GetRCdataLastRecv() : 0;
   if (lastRcData && (micros() - lastRcData > 1000000))
   {
     // The tx is in Mavlink mode and without a valid crsf or RC input.  Do not send stale or fake zero packet RC!
@@ -545,7 +547,7 @@ void ICACHE_RAM_ATTR SendRCdataToRF()
   uint32_t SyncInterval = (connectionState == connected && !isTlmDisarmed) ? ExpressLRS_currAirRate_RFperfParams->SyncPktIntervalConnected : ExpressLRS_currAirRate_RFperfParams->SyncPktIntervalDisconnected;
   bool skipSync = InBindingMode ||
     // TLM_RATIO_DISARMED keeps sending sync packets even when armed until the RX stops sending telemetry and the TLM=Off has taken effect
-    (isTlmDisarmed && handset->IsArmed() && (ExpressLRS_currTlmDenom == 1));
+    (isTlmDisarmed && handset && handset->IsArmed() && (ExpressLRS_currTlmDenom == 1));
 
   uint8_t NonceFHSSresult = OtaNonce % ExpressLRS_currAirRate_Modparams->FHSShopInterval;
 
@@ -670,7 +672,7 @@ void ICACHE_RAM_ATTR timerCallback()
   }
 
   // Sync OpenTX to this point
-  if (!(OtaNonce % ExpressLRS_currAirRate_Modparams->numOfSends))
+  if (handset && !(OtaNonce % ExpressLRS_currAirRate_Modparams->numOfSends))
   {
     handset->JustSentRFpacket();
   }
@@ -746,7 +748,7 @@ void ResetPower()
   // (user may be turning up the power while flying and dropping the power may compromise the link)
   if (config.GetDynamicPower())
   {
-    if (!handset->IsArmed())
+    if (!handset || !handset->IsArmed())
     {
       // if dynamic power enabled and not armed then set to MinPower
       POWERMGNT::setPower(MinPower);
@@ -965,7 +967,7 @@ static void CheckReadyToSend()
   if (RxWiFiReadyToSend)
   {
     RxWiFiReadyToSend = false;
-    if (!handset->IsArmed())
+    if (!handset || !handset->IsArmed())
     {
       SendRxWiFiOverMSP();
     }
@@ -1295,6 +1297,8 @@ static void setupSerial()
   // Because we have ARDUINO_USB_MODE enabled, we use USBSerial as the USB device.
   // USBSerial.begin(firmwareOptions.uart_baud);
   // TxUSB = &USBSerial;
+  // For ESP32-S3/C3, use NullStream as USB is handled differently
+  TxUSB = new NullStream();
 #elif defined(PLATFORM_ESP32)
   if (GPIO_PIN_DEBUG_RX == U0RXD_GPIO_NUM && GPIO_PIN_DEBUG_TX == U0TXD_GPIO_NUM)
   {
@@ -1446,7 +1450,7 @@ extern "C" void elrs_setup(void)
     crsfRouter.addConnector(&usbConnector);
     // When a CRSF handset is detected, it will add itself to the router
 
-    handset->registerCallbacks(UARTconnected, firmwareOptions.is_airport ? nullptr : UARTdisconnected);
+    if (handset) handset->registerCallbacks(UARTconnected, firmwareOptions.is_airport ? nullptr : UARTdisconnected);
 
     eeprom.Begin(); // Init the eeprom
     config.SetStorageProvider(&eeprom); // Pass pointer to the Config class for access to storage

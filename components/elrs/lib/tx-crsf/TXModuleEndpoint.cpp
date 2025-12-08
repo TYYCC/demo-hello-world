@@ -115,7 +115,7 @@ void TXModuleEndpoint::RcPacketToChannelsData(const crsf_header_t *message) // d
         bitsMerged -= srcBits;
     }
 
-    handset->PerformChannelOverrides(localChannelData, CRSF_NUM_CHANNELS);
+    if (handset) handset->PerformChannelOverrides(localChannelData, CRSF_NUM_CHANNELS);
 
     //
     // sends channel data and also communicates commanded armed status in arming mode Switch.
@@ -127,7 +127,7 @@ void TXModuleEndpoint::RcPacketToChannelsData(const crsf_header_t *message) // d
     // monitoring arming state
     if (lastArmCmd != armCmd)
     {
-        handset->SetArmed(armCmd);
+        if (handset) handset->SetArmed(armCmd);
         lastArmCmd = armCmd;
 #if defined(PLATFORM_ESP32)
         devicesTriggerEvent(EVENT_ARM_FLAG_CHANGED);
