@@ -33,6 +33,7 @@ typedef struct {
     const char* wifi_settings_label;
     const char* backlight_label;
     const char* auto_pairing_label;
+    const char* binding_mode_label;
 } ui_text_t;
 
 // 英文文本
@@ -50,7 +51,8 @@ static const ui_text_t english_text = {.settings_title = "SETTINGS",
                                        .language_changed = "Language Changed!",
                                        .wifi_settings_label = "WiFi Settings",
                                        .backlight_label = "Backlight:",
-                                       .auto_pairing_label = "Auto Pairing"};
+                                       .auto_pairing_label = "Auto Pairing",
+                                       .binding_mode_label = "Binding Mode"};
 
 // 中文文本（需要中文字体支持）
 static const ui_text_t chinese_text = {.settings_title = "设置",
@@ -67,7 +69,8 @@ static const ui_text_t chinese_text = {.settings_title = "设置",
                                        .language_changed = "语言已切换!",
                                        .wifi_settings_label = "无线网络设置",
                                        .backlight_label = "背光:",
-                                       .auto_pairing_label = "自动配对"};
+                                       .auto_pairing_label = "自动配对",
+                                       .binding_mode_label = "配对模式"};
 
 // 获取当前语言文本
 static const ui_text_t* get_current_text(void) {
@@ -134,6 +137,22 @@ static void auto_pairing_btn_cb(lv_event_t* e) {
     // 启动自动配对功能
     extern void auto_pairing_start(void);
     auto_pairing_start();
+}
+
+// 配对模式按钮回调
+static void binding_mode_btn_cb(lv_event_t* e) {
+    lv_obj_t* screen = lv_scr_act();
+    if (screen) {
+        extern void ui_binding_create(lv_obj_t* parent);
+        extern void ui_binding_module_init(void);
+        
+        // 初始化配对模块
+        ui_binding_module_init();
+        
+        // 清空屏幕并显示配对界面
+        lv_obj_clean(screen);
+        ui_binding_create(screen);
+    }
 }
 
 // 关于信息回调
@@ -441,6 +460,19 @@ void ui_settings_create(lv_obj_t* parent) {
     theme_apply_to_label(pairing_label, false);
     lv_obj_center(pairing_label);
     set_language_display(pairing_label);
+
+    // --- 配对模式 ---
+    lv_obj_t* binding_btn = lv_btn_create(content_container);
+    lv_obj_set_width(binding_btn, lv_pct(100));
+    lv_obj_set_height(binding_btn, 40);
+    theme_apply_to_button(binding_btn, true);
+    lv_obj_add_event_cb(binding_btn, binding_mode_btn_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t* binding_label = lv_label_create(binding_btn);
+    lv_label_set_text(binding_label, text->binding_mode_label);
+    theme_apply_to_label(binding_label, false);
+    lv_obj_center(binding_label);
+    set_language_display(binding_label);
 
     // --- 关于 ---
     lv_obj_t* about_btn = lv_btn_create(content_container);

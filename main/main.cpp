@@ -143,9 +143,6 @@ extern "C" void app_main(void) {
     // Arduino HAL 使用空 TAG，所以用 "*" 临时降低全局错误日志等级，初始化后恢复
     esp_log_level_t original_level = esp_log_level_get("*");
     esp_log_level_set("*", ESP_LOG_WARN);  // 临时只显示警告及以上
-    
-    ESP_LOGW(TAG, "=== ELRS TX Module Initialization ===");
-    ESP_LOGW(TAG, "Initializing Arduino framework...");
     initArduino();
     
     // 初始化 Arduino Serial 用于 ELRS 日志输出（通过 USB CDC）
@@ -154,9 +151,6 @@ extern "C" void app_main(void) {
     delay(100);  // 等待串口稳定
     Serial.println("\n[ELRS] Serial initialized for ELRS debug output");
     
-    ESP_LOGW(TAG, "Arduino framework initialized");
-    
-    ESP_LOGW(TAG, "Starting ELRS setup...");
     elrs_setup();
     
     // 恢复日志等级
@@ -165,22 +159,22 @@ extern "C" void app_main(void) {
 #endif
 
     // 初始化所有组件
-    // esp_err_t ret = components_init();
-    // if (ret != ESP_OK) {
-    //     ESP_LOGE(TAG, "Failed to initialize components: %s", esp_err_to_name(ret));
-    //     return;
-    // }
+    esp_err_t ret = components_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize components: %s", esp_err_to_name(ret));
+        return;
+    }
 
-    // // 初始化任务管理
-    // ret = init_all_tasks();
-    // if (ret != ESP_OK) {
-    //     ESP_LOGE(TAG, "Failed to initialize tasks: %s", esp_err_to_name(ret));
-    //     return;
-    // }
+    // 初始化任务管理
+    ret = init_all_tasks();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize tasks: %s", esp_err_to_name(ret));
+        return;
+    }
 
-    // // 显示当前运行的任务
-    // vTaskDelay(pdMS_TO_TICKS(1000)); // 等待任务启动
-    // list_running_tasks();
+    // 显示当前运行的任务
+    vTaskDelay(pdMS_TO_TICKS(1000)); // 等待任务启动
+    list_running_tasks();
 
     // 主任务进入轻量级监控循环
     while (1) {

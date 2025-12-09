@@ -27,6 +27,7 @@ else()
         "UI/ui_main.c"
         "UI/ui_wifi_settings.c"
         "UI/ui_settings.c"
+        "UI/ui_binding.c"
         "UI/ui_image_transfer.c"
         "UI/ui_serial_display.c"
         "UI/ui_calibration.c"

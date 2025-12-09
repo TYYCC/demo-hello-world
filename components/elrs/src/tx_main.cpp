@@ -671,6 +671,14 @@ void ICACHE_RAM_ATTR timerCallback()
     return;
   }
 
+  // In binding mode, do minimal work - only advance nonce, don't try to send RC data
+  // This prevents accessing uninitialized linkStats and other objects
+  if (InBindingMode)
+  {
+    nonceAdvance();
+    return;
+  }
+
   // Sync OpenTX to this point
   if (handset && !(OtaNonce % ExpressLRS_currAirRate_Modparams->numOfSends))
   {
@@ -1045,15 +1053,22 @@ static void ExitBindingMode()
   if (!InBindingMode)
     return;
 
+  // Don't stop the timer! It would cause watchdog timeout.
+  // Instead, just clear the InBindingMode flag so timerCallback() switches to normal operation
+  
   DataUlSender.ResetState();
 
   // Reset CRCInit to UID-defined value
   OtaUpdateCrcInitFromUid();
-  InBindingMode = false; // Clear binding mode before SetRFLinkRate() for correct IQ
+  
+  // Clear binding mode flag FIRST - this tells timerCallback() to resume normal operation
+  InBindingMode = false;
 
+  // Return to original rate (timer will call this, and timerCallback will be ready)
+  SetRFLinkRate(config.GetRate());
+
+  // Restore normal connection state
   UARTconnected();
-
-  SetRFLinkRate(config.GetRate()); //return to original rate
 
   DBGLN("Exiting binding mode");
 }
@@ -1062,6 +1077,12 @@ void EnterBindingModeSafely()
 {
   // TX can always enter binding mode safely as the function handles stopping the transmitter
   EnterBindingMode();
+}
+
+void ExitBindingMode_Public()
+{
+  // Public wrapper for ExitBindingMode to be called from UI or external code
+  ExitBindingMode();
 }
 
 void ProcessMSPPacket(uint32_t now, mspPacket_t *packet)

@@ -63,6 +63,32 @@ void ui_wifi_settings_create(lv_obj_t* parent);
 void ui_settings_create(lv_obj_t* parent);
 
 /**
+ * @brief 创建配对界面
+ * @param parent 父对象，通常是 lv_scr_act()
+ */
+void ui_binding_create(lv_obj_t* parent);
+
+/**
+ * @brief 销毁配对界面
+ */
+void ui_binding_destroy(void);
+
+/**
+ * @brief 开始配对模式
+ */
+void ui_binding_start(void);
+
+/**
+ * @brief 设置配对成功状态
+ */
+void ui_binding_success(void);
+
+/**
+ * @brief 初始化UI配对模块
+ */
+void ui_binding_module_init(void);
+
+/**
  * @brief 更新电池电量显示
  * 由任务调用，每5分钟更新一次
  */
