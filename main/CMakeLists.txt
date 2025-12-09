@@ -23,7 +23,7 @@ else()
         # UI相关的文件
         "UI/ui_telemetry.c"
         "UI/ui_start_animation.c"
-    "UI/ui_sync.c"
+        "UI/ui_sync.c"
         "UI/ui_main.c"
         "UI/ui_wifi_settings.c"
         "UI/ui_settings.c"
@@ -31,7 +31,6 @@ else()
         "UI/ui_image_transfer.c"
         "UI/ui_serial_display.c"
         "UI/ui_calibration.c"
-        "UI/ui_test.c"
         "UI/ui_numeric_keypad.c"
 
         # UI公共组件

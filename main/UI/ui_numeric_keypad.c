@@ -1,3 +1,10 @@
+/**
+ * @file ui_numeric_keypad.c
+ * @brief Numeric keypad UI component for password input
+ * @author Your Name
+ * @date 2024
+ */
+
 #include "ui_numeric_keypad.h"
 #include "theme_manager.h"
 #include "esp_log.h"
@@ -6,7 +13,7 @@
 
 static const char* TAG = "UI_NUMERIC_KEYPAD";
 
-// 小键盘数据结构
+// Numeric keypad data structure
 typedef struct {
     lv_obj_t* container;
     lv_obj_t* password_display;
@@ -17,7 +24,7 @@ typedef struct {
 } keypad_data_t;
 
 
-// 按键标签
+// Key labels
 static const char* keypad_labels[] = {
     "1", "2", "3",
     "4", "5", "6", 
@@ -33,7 +40,7 @@ lv_obj_t* ui_numeric_keypad_create(lv_obj_t* parent, const char* title,
                                    const char* current_password,
                                    numeric_keypad_cb_t callback, 
                                    void* user_data) {
-    // 创建模态背景
+    // Create modal background
     lv_obj_t* bg = lv_obj_create(parent);
     lv_obj_set_size(bg, LV_PCT(100), LV_PCT(100));
     lv_obj_set_pos(bg, 0, 0);
@@ -42,9 +49,9 @@ lv_obj_t* ui_numeric_keypad_create(lv_obj_t* parent, const char* title,
     lv_obj_set_style_border_width(bg, 0, 0);
     lv_obj_set_style_pad_all(bg, 0, 0);
     lv_obj_add_flag(bg, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_move_to_index(bg, -1); // 确保在最上层显示
+    lv_obj_move_to_index(bg, -1); // Ensure displayed on top layer
 
-    // 创建主容器 - 针对240x320屏幕优化
+    // Create main container - optimized for 240x320 screen
     lv_obj_t* container = lv_obj_create(bg);
     lv_obj_set_size(container, 220, 280);
     lv_obj_center(container);
@@ -54,13 +61,13 @@ lv_obj_t* ui_numeric_keypad_create(lv_obj_t* parent, const char* title,
     lv_obj_set_style_radius(container, 8, 0);
     lv_obj_set_style_shadow_width(container, 15, 0);
     lv_obj_set_style_shadow_opa(container, LV_OPA_50, 0);
-    // 隐藏滚动条
+    // Hide scroll bar
     lv_obj_set_style_width(container, 0, LV_PART_SCROLLBAR);
     lv_obj_set_style_opa(container, LV_OPA_0, LV_PART_SCROLLBAR);
     lv_obj_clear_flag(container, LV_OBJ_FLAG_SCROLLABLE);
     theme_apply_to_container(container);
 
-    // 分配数据结构
+    // Allocate data structure
     keypad_data_t* data = lv_mem_alloc(sizeof(keypad_data_t));
     memset(data, 0, sizeof(keypad_data_t));
     data->container = bg;
@@ -73,7 +80,7 @@ lv_obj_t* ui_numeric_keypad_create(lv_obj_t* parent, const char* title,
 
     lv_obj_set_user_data(bg, data);
 
-    // 创建标题栏
+    // Create title bar
     lv_obj_t* title_bar = lv_obj_create(container);
     lv_obj_set_width(title_bar, LV_PCT(100));
     lv_obj_set_height(title_bar, 35);
@@ -82,17 +89,17 @@ lv_obj_t* ui_numeric_keypad_create(lv_obj_t* parent, const char* title,
     lv_obj_set_style_bg_opa(title_bar, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(title_bar, 0, 0);
     lv_obj_set_style_pad_all(title_bar, 5, 0);
-    // 隐藏滚动条
+    // Hide scroll bar
     lv_obj_set_style_width(title_bar, 0, LV_PART_SCROLLBAR);
     lv_obj_set_style_opa(title_bar, LV_OPA_0, LV_PART_SCROLLBAR);
     lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    // 标题文本
+    // Title text
     data->title_label = lv_label_create(title_bar);
     lv_label_set_text(data->title_label, (title && title[0] != '\0') ? title : "AP Password");
     theme_apply_to_label(data->title_label, false);
 
-    // 关闭按钮 - 固定在右上方
+    // Close button - fixed in top right
     lv_obj_t* close_btn = lv_btn_create(title_bar);
     lv_obj_set_size(close_btn, 30, 30);
     lv_obj_set_style_bg_color(close_btn, lv_palette_main(LV_PALETTE_RED), 0);
@@ -105,7 +112,7 @@ lv_obj_t* ui_numeric_keypad_create(lv_obj_t* parent, const char* title,
     lv_obj_center(close_label);
     theme_apply_to_label(close_label, false);
 
-    // 密码显示区域
+    // Password display area
     lv_obj_t* password_container = lv_obj_create(container);
     lv_obj_set_width(password_container, LV_PCT(100));
     lv_obj_set_height(password_container, 50);
@@ -114,12 +121,12 @@ lv_obj_t* ui_numeric_keypad_create(lv_obj_t* parent, const char* title,
     lv_obj_set_style_border_width(password_container, 1, 0);
     lv_obj_set_style_border_color(password_container, lv_palette_main(LV_PALETTE_GREY), 0);
     lv_obj_set_style_radius(password_container, 5, 0);
-    // 隐藏滚动条
+    // Hide scroll bar
     lv_obj_set_style_width(password_container, 0, LV_PART_SCROLLBAR);
     lv_obj_set_style_opa(password_container, LV_OPA_0, LV_PART_SCROLLBAR);
     lv_obj_clear_flag(password_container, LV_OBJ_FLAG_SCROLLABLE);
 
-    // 当前密码标签
+    // Current password label
     if (current_password && strlen(current_password) > 0) {
         lv_obj_t* current_label = lv_label_create(password_container);
         lv_label_set_text_fmt(current_label, "Current: %s", current_password);
@@ -134,7 +141,7 @@ lv_obj_t* ui_numeric_keypad_create(lv_obj_t* parent, const char* title,
     lv_obj_set_style_text_color(data->password_display, lv_palette_main(LV_PALETTE_BLUE), 0);
     update_password_display(data);
 
-    // 创建按键网格
+    // Create key grid
     lv_obj_t* keypad_grid = lv_obj_create(container);
     lv_obj_set_width(keypad_grid, LV_PCT(100));
     lv_obj_set_flex_grow(keypad_grid, 1);
@@ -143,17 +150,17 @@ lv_obj_t* ui_numeric_keypad_create(lv_obj_t* parent, const char* title,
     lv_obj_set_style_border_width(keypad_grid, 0, 0);
     lv_obj_set_style_pad_all(keypad_grid, 5, 0);
     lv_obj_set_style_pad_gap(keypad_grid, 4, 0);
-    // 隐藏滚动条
+    // Hide scroll bar
     lv_obj_set_style_width(keypad_grid, 0, LV_PART_SCROLLBAR);
     lv_obj_set_style_opa(keypad_grid, LV_OPA_0, LV_PART_SCROLLBAR);
     lv_obj_clear_flag(keypad_grid, LV_OBJ_FLAG_SCROLLABLE);
 
-    // 设置网格模板：3列4行，增加按键间距
+    // Set grid template: 3 columns 4 rows, increase key spacing
     static lv_coord_t col_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
     static lv_coord_t row_dsc[] = {LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_FR(1), LV_GRID_TEMPLATE_LAST};
     lv_obj_set_grid_dsc_array(keypad_grid, col_dsc, row_dsc);
 
-    // 创建按键
+    // Create keys
     for (int i = 0; i < 12; i++) {
         lv_obj_t* btn = lv_btn_create(keypad_grid);
         lv_obj_set_grid_cell(btn, LV_GRID_ALIGN_STRETCH, i % 3, 1, 
@@ -168,7 +175,7 @@ lv_obj_t* ui_numeric_keypad_create(lv_obj_t* parent, const char* title,
         theme_apply_to_label(label, false);
         lv_obj_set_style_text_font(label, &lv_font_montserrat_16, 0);
 
-        // 为特殊按键设置不同样式
+        // Set different styles for special keys
         if (strcmp(keypad_labels[i], "OK") == 0) {
             lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_GREEN), 0);
             lv_obj_set_style_text_color(label, lv_color_white(), 0);
@@ -202,13 +209,13 @@ static void keypad_button_cb(lv_event_t* e) {
     const char* text = lv_label_get_text(label);
 
     if (strcmp(text, "DEL") == 0) {
-        // 删除最后一个字符
+        // Delete last character
         size_t len = strlen(data->password);
         if (len > 0) {
             data->password[len - 1] = '\0';
         }
     } else if (strcmp(text, "OK") == 0) {
-        // 确认密码
+        // Confirm password
         if (strlen(data->password) >= 8) {
             if (data->callback) {
                 data->callback(data->password, data->user_data);

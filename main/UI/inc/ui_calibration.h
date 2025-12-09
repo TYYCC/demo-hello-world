@@ -1,9 +1,3 @@
-/**
- * @file ui_calibration.h
- * @brief 校准和测试界面头文件
- * @author Your Name
- * @date 2024
- */
 #ifndef UI_CALIBRATION_H
 #define UI_CALIBRATION_H
 
@@ -14,13 +8,13 @@ extern "C" {
 #include "lvgl.h"
 
 /**
- * @brief 创建校准和测试界面
- * @param parent 父容器对象
+ * @brief Create calibration and test interface
+ * @param parent Parent container object
  */
 void ui_calibration_create(lv_obj_t *parent);
 
 /**
- * @brief 销毁校准和测试界面
+ * @brief Destroy calibration and test interface
  */
 void ui_calibration_destroy(void);
 

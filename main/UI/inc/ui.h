@@ -1,9 +1,3 @@
-/**
- * @file UI.h
- * @brief UI模块统一头文件
- * @author Your Name
- * @date 2024
- */
 #ifndef UI_H
 #define UI_H
 
@@ -15,55 +9,55 @@ extern "C" {
 #include "theme_manager.h"
 #include "ui_state_manager.h"
 
-// 定义加载阶段枚举
+// Define loading stage enum
 typedef enum {
-    UI_STAGE_INITIALIZING = 0,// 初始化阶段
-    UI_STAGE_LOADING_COMPONENTS,// 加载组件阶段
-    UI_STAGE_STARTING_SERVICES,// 启动服务阶段
-    UI_STAGE_CONFIGURING_HARDWARE,// 配置硬件阶段
-    UI_STAGE_ALMOST_READY,// 准备就绪阶段
-    UI_STAGE_FINALIZING,// 最终阶段
+    UI_STAGE_INITIALIZING = 0,// Initializing stage
+    UI_STAGE_LOADING_COMPONENTS,// Loading components stage
+    UI_STAGE_STARTING_SERVICES,// Starting services stage
+    UI_STAGE_CONFIGURING_HARDWARE,// Configuring hardware stage
+    UI_STAGE_ALMOST_READY,// Almost ready stage
+    UI_STAGE_FINALIZING,// Finalizing stage
     UI_STAGE_DONE
 } ui_load_stage_t;
 
-// --- LVGL 主任务 ---
-// 这个任务初始化并运行LVGL的主循环
+// --- LVGL main task ---
+// This task initializes and runs the LVGL main loop
 void lvgl_main_task(void* pvParameters);
 
-// --- 启动动画 UI ---
+// --- Start animation UI ---
 
 /**
- * @brief 启动动画完成时的回调函数类型
+ * @brief Callback function type when start animation finishes
  */
 typedef void (*ui_start_anim_finished_cb_t)(void);
 
 /**
- * @brief 创建并开始播放启动动画
- * @param parent    父对象，通常是 lv_scr_act()
- * @param finished_cb 动画播放完成时调用的回调函数
+ * @brief Create and start playing start animation
+ * @param parent    Parent object, usually lv_scr_act()
+ * @param finished_cb Callback function called when animation finishes
  */
 void ui_start_animation_create(lv_obj_t* parent, ui_start_anim_finished_cb_t finished_cb);
 
 /**
- * @brief 创建主菜单界面
- * @param parent 父对象，通常是 lv_scr_act()
+ * @brief Create main menu interface
+ * @param parent Parent object, usually lv_scr_act()
  */
 void ui_main_menu_create(lv_obj_t* parent);
 
 /**
- * @brief 创建WiFi设置界面
- * @param parent 父对象，通常是 lv_scr_act()
+ * @brief Create WiFi settings interface
+ * @param parent Parent object, usually lv_scr_act()
  */
 void ui_wifi_settings_create(lv_obj_t* parent);
 
 /**
- * @brief 创建系统设置界面
- * @param parent 父对象，通常是 lv_scr_act()
+ * @brief Create system settings interface
+ * @param parent Parent object, usually lv_scr_act()
  */
 void ui_settings_create(lv_obj_t* parent);
 
 /**
- * @brief 创建配对界面
+ * @brief Create pairing interface
  * @param parent 父对象，通常是 lv_scr_act()
  */
 void ui_binding_create(lv_obj_t* parent);
@@ -87,12 +81,6 @@ void ui_binding_success(void);
  * @brief 初始化UI配对模块
  */
 void ui_binding_module_init(void);
-
-/**
- * @brief 更新电池电量显示
- * 由任务调用，每5分钟更新一次
- */
-void ui_main_update_battery_display(void);
 
 // --- 语言设置相关 ---
 // 语言类型枚举

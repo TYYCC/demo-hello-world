@@ -1,6 +1,6 @@
 /**
  * @file ui_calibration.c
- * @brief 校准和测试界面 - 支持各种外设的校准和测试
+ * @brief Calibration and test interface - supports calibration and testing of various peripherals
  * @author Your Name
  * @date 2024
  */
@@ -17,69 +17,69 @@
 #include "calibration_manager.h"
 #include "joystick_adc.h"
 #include "lsm6ds3.h"
-#include "lsm6ds_control.h"  // 后台 Fusion AHRS 任务
+#include "lsm6ds_control.h"
 #include "my_font.h"
 #include "theme_manager.h"
 #include "ui.h"
 
 static const char* TAG = "UI_CALIBRATION";
 
-// 画布定义
+// Canvas definitions
 #define CANVAS_WIDTH 120
 #define CANVAS_HEIGHT 120
 static lv_color_t* canvas_buf = NULL;
 
-// 界面状态
+// UI state
 typedef enum {
     CALIBRATION_STATE_MAIN_MENU,
     CALIBRATION_STATE_JOYSTICK_TEST,
     CALIBRATION_STATE_GYROSCOPE_TEST
 } calibration_state_t;
 
-// 前向声明
+// Forward declarations
 static void create_main_menu(lv_obj_t* content_container);
 static void create_joystick_test(lv_obj_t* content_container);
 static void create_gyroscope_test(lv_obj_t* content_container);
 static void test_task(void* pvParameter);
 static void ui_update_timer_cb(lv_timer_t* timer);
 
-// 全局变量
+// Global variables
 static lv_obj_t* g_page_parent_container = NULL;
 static lv_obj_t* g_content_container = NULL;
 static lv_obj_t* g_info_label = NULL;
 
-// 当前状态
+// Current state
 static calibration_state_t g_current_state = CALIBRATION_STATE_MAIN_MENU;
 static bool g_test_running = false;
 static TaskHandle_t g_test_task_handle = NULL;
 static lv_timer_t* g_ui_update_timer = NULL;
 static QueueHandle_t g_test_queue = NULL;
 
-// 消息类型
+// Message types
 typedef enum { 
     MSG_UPDATE_JOYSTICK, 
-    MSG_UPDATE_GYROSCOPE,      // 陀螺仪角速度数据
-    MSG_UPDATE_EULER,          // 后台 Fusion AHRS 的欧拉角
+    MSG_UPDATE_GYROSCOPE,      // Gyroscope angular velocity data
+    MSG_UPDATE_EULER,          // Euler angles from background Fusion AHRS
     MSG_STOP_TEST 
 } test_msg_type_t;
 
-// 摇杆测试数据结构
+// Joystick test data structure
 typedef struct {
     lv_obj_t* joystick_indicator;
     lv_obj_t* value_label;
 } joystick_test_data_t;
 
-// 3D点结构体
+// 3D point structure
 typedef struct {
     float x, y, z;
 } point3d_t;
 
-// 陀螺仪测试数据结构
+// Gyroscope test data structure
 typedef struct {
     lv_obj_t* canvas;
     lv_obj_t* value_label;
-    point3d_t initial_vertices[8];   // 初始立方体顶点
-    float angle_x, angle_y, angle_z; // 旋转角度（使用改进的积分算法）
+    point3d_t initial_vertices[8];   // Initial cube vertices
+    float angle_x, angle_y, angle_z; // Rotation angles (using improved integration algorithm)
 } gyro_test_data_t;
 
 typedef struct {
@@ -89,23 +89,23 @@ typedef struct {
             int16_t joy1_x, joy1_y;
         } joystick;
         struct {
-            float x, y, z;  // 角速度 (dps)
+            float x, y, z;  // Angular velocity (dps)
         } gyro;
         struct {
-            float roll, pitch, yaw;  // 欧拉角（度）- 从后台 Fusion AHRS 读取
+            float roll, pitch, yaw;  // Euler angles (degrees) - read from background Fusion AHRS
         } euler;
     } data;
 } test_msg_t;
 
-// 自定义返回按钮回调 - 处理校准界面的特殊逻辑
+// Custom back button callback - handles special logic for calibration interface
 static void calibration_back_btn_callback(lv_event_t* e) {
     if (g_test_running) {
-        // 停止测试
+        // Stop test
         test_msg_t msg = {.type = MSG_STOP_TEST};
         xQueueSend(g_test_queue, &msg, pdMS_TO_TICKS(100));
         g_test_running = false;
 
-        // 删除UI更新定时器
+        // Delete UI update timer
         if (g_ui_update_timer) {
             lv_timer_del(g_ui_update_timer);
             g_ui_update_timer = NULL;
@@ -113,14 +113,14 @@ static void calibration_back_btn_callback(lv_event_t* e) {
     }
 
     if (g_current_state == CALIBRATION_STATE_MAIN_MENU) {
-        // 返回主菜单
+        // Return to main menu
         lv_obj_t* screen = lv_scr_act();
         if (screen) {
             lv_obj_clean(screen);
             ui_main_menu_create(screen);
         }
     } else {
-        // 返回校准主菜单，刷新显示最新状态
+        // Return to calibration main menu, refresh display with latest status
         g_current_state = CALIBRATION_STATE_MAIN_MENU;
         ESP_LOGI(TAG, "Returning to calibration main menu, refreshing status");
         create_main_menu(g_content_container);
@@ -144,15 +144,12 @@ static void calibrate_btn_event_cb(lv_event_t* e) {
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "Calibration completed successfully");
         
-        // 【重要】校准完成后，立即更新主菜单显示
-        // 无论当前在哪个状态，都刷新一次确保状态同步
         const calibration_status_t* status = get_calibration_status();
         if (status) {
             ESP_LOGI(TAG, "Updated calibration status: Gyro=%d", 
                      status->gyroscope_calibrated);
         }
         
-        // 如果在主菜单，刷新显示
         if (g_current_state == CALIBRATION_STATE_MAIN_MENU) {
             create_main_menu(g_content_container);
         }
@@ -163,14 +160,12 @@ static void calibrate_btn_event_cb(lv_event_t* e) {
 
 static void test_btn_event_cb(lv_event_t* e) {
     if (g_test_running) {
-        // 停止测试
+
         g_test_running = false;
 
-        // 发送停止消息到测试任务
         test_msg_t msg = {.type = MSG_STOP_TEST};
         xQueueSend(g_test_queue, &msg, pdMS_TO_TICKS(100));
 
-        // 删除UI更新定时器
         if (g_ui_update_timer) {
             lv_timer_del(g_ui_update_timer);
             g_ui_update_timer = NULL;
@@ -182,10 +177,10 @@ static void test_btn_event_cb(lv_event_t* e) {
 
         ESP_LOGI(TAG, "Test stopped");
     } else {
-        // 开始测试
+        // Start test
         g_test_running = true;
 
-        // 启动测试任务
+        // Start test task
         if (g_test_task_handle == NULL) {
             BaseType_t ret = xTaskCreate(test_task, "test_task", 4096, NULL, 5, &g_test_task_handle);
             if (ret != pdPASS) {
@@ -195,7 +190,7 @@ static void test_btn_event_cb(lv_event_t* e) {
             }
         }
 
-        // 创建UI更新定时器（20ms = 50Hz，提高响应速度）
+        // Create UI update timer (20ms = 50Hz, improve response speed)
         g_ui_update_timer = lv_timer_create(ui_update_timer_cb, 20, g_test_queue);
 
         lv_obj_t* btn = lv_event_get_target(e);
@@ -222,15 +217,15 @@ static void menu_btn_event_cb(lv_event_t* e) {
     }
 }
 
-// 创建主菜单
+// Create main menu
 static void create_main_menu(lv_obj_t* content_container) {
     if (!content_container)
         return;
 
     lv_obj_clean(content_container);
 
-    // 【关键】获取最新的校准状态
-    // 确保显示的是从 NVS 加载的实际状态
+    // [Critical] Get the latest calibration status
+    // Ensure the displayed status is loaded from NVS
     const calibration_status_t* status = get_calibration_status();
     if (status) {
         ESP_LOGI(TAG, "Displaying calibration status: Gyro=%d", 
@@ -251,7 +246,7 @@ static void create_main_menu(lv_obj_t* content_container) {
         lv_obj_set_style_text_font(g_info_label, loaded_font, 0);
     }
 
-    // 创建菜单按钮
+    // Create menu buttons
     const char* menu_items[] = {"Joystick Test", "Gyroscope Test"};
 
     for (int i = 0; i < 2; i++) {
@@ -264,62 +259,62 @@ static void create_main_menu(lv_obj_t* content_container) {
         lv_label_set_text(label, menu_items[i]);
         lv_obj_center(label);
 
-        // 设置按钮事件
+        // Set button event
         lv_obj_set_user_data(btn, (void*)(intptr_t)i);
         lv_obj_add_event_cb(btn, menu_btn_event_cb, LV_EVENT_CLICKED, NULL);
     }
 }
 
-// 创建校准界面
+// Create calibration interface
 void ui_calibration_create(lv_obj_t* parent) {
     g_current_state = CALIBRATION_STATE_MAIN_MENU;
 
-    // 从PSRAM分配画布缓冲区
+    // Allocate canvas buffer from PSRAM
     canvas_buf = heap_caps_malloc(LV_CANVAS_BUF_SIZE_TRUE_COLOR(CANVAS_WIDTH, CANVAS_HEIGHT), MALLOC_CAP_SPIRAM);
     if (!canvas_buf) {
         ESP_LOGE(TAG, "Failed to allocate canvas buffer in PSRAM");
         return;
     }
 
-    // 创建消息队列
+    // Create message queue
     g_test_queue = xQueueCreate(10, sizeof(test_msg_t));
     if (!g_test_queue) {
         ESP_LOGE(TAG, "Failed to create test queue");
-        heap_caps_free(canvas_buf); // 如果队列创建失败，则释放缓冲区
+        heap_caps_free(canvas_buf); // If queue creation fails, free the buffer
         canvas_buf = NULL;
         return;
     }
 
-    // 应用当前主题到屏幕
+    // Apply current theme to screen
     theme_apply_to_screen(parent);
 
-    // 1. 创建页面父级容器（统一管理整个页面）
+    // 1. Create page parent container (unified management of the entire page)
     ui_create_page_parent_container(parent, &g_page_parent_container);
 
-    // 2. 创建顶部栏容器（包含返回按钮和标题）
+    // 2. Create top bar container (contains back button and title)
     lv_obj_t* top_bar_container;
     lv_obj_t* title_container;
     ui_create_top_bar(g_page_parent_container, "Calibration & Test", false, &top_bar_container, &title_container, NULL);
 
-    // 替换顶部栏的返回按钮回调为自定义回调
-    lv_obj_t* back_btn = lv_obj_get_child(top_bar_container, 0); // 获取返回按钮
+    // Replace top bar back button callback with custom callback
+    lv_obj_t* back_btn = lv_obj_get_child(top_bar_container, 0); // Get back button
     if (back_btn) {
-        lv_obj_remove_event_cb(back_btn, NULL); // 移除默认回调
+        lv_obj_remove_event_cb(back_btn, NULL); // Remove default callback
         lv_obj_add_event_cb(back_btn, calibration_back_btn_callback, LV_EVENT_CLICKED, NULL);
     }
 
-    // 3. 创建页面内容容器
+    // 3. Create page content container
     ui_create_page_content_area(g_page_parent_container, &g_content_container);
 
-    // 4. 创建主菜单
+    // 4. Create main menu
     create_main_menu(g_content_container);
 
     ESP_LOGI(TAG, "Calibration UI created successfully");
 }
 
-// 销毁校准界面
+// Destroy calibration interface
 void ui_calibration_destroy(void) {
-    // 停止测试
+    // Stop test
     if (g_test_running) {
         test_msg_t msg = {.type = MSG_STOP_TEST};
         xQueueSend(g_test_queue, &msg, pdMS_TO_TICKS(100));
@@ -327,19 +322,19 @@ void ui_calibration_destroy(void) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 
-    // 删除测试任务
+    // Delete test task
     if (g_test_task_handle) {
         vTaskDelete(g_test_task_handle);
         g_test_task_handle = NULL;
     }
 
-    // 删除UI更新定时器
+    // Delete UI update timer
     if (g_ui_update_timer) {
         lv_timer_del(g_ui_update_timer);
         g_ui_update_timer = NULL;
     }
 
-    // 释放测试数据内存
+    // Free test data memory
     if (g_content_container && g_current_state == CALIBRATION_STATE_JOYSTICK_TEST) {
         joystick_test_data_t* test_data = (joystick_test_data_t*)lv_obj_get_user_data(g_content_container);
         if (test_data) {
@@ -352,19 +347,19 @@ void ui_calibration_destroy(void) {
         }
     }
 
-    // 删除消息队列
+    // Delete message queue
     if (g_test_queue) {
         vQueueDelete(g_test_queue);
         g_test_queue = NULL;
     }
 
-    // 释放画布缓冲区
+    // Free canvas buffer
     if (canvas_buf) {
         heap_caps_free(canvas_buf);
         canvas_buf = NULL;
     }
 
-    // 清空全局变量
+    // Clear global variables
     g_page_parent_container = NULL;
     g_content_container = NULL;
     g_info_label = NULL;
@@ -372,14 +367,14 @@ void ui_calibration_destroy(void) {
     ESP_LOGI(TAG, "Calibration UI destroyed");
 }
 
-// 创建摇杆测试界面
+// Create joystick test interface
 static void create_joystick_test(lv_obj_t* content_container) {
     if (!content_container)
         return;
 
     lv_obj_clean(content_container);
 
-    // 创建摇杆显示区域
+    // Create joystick display area
     lv_obj_t* joystick_area = lv_obj_create(content_container);
     lv_obj_set_size(joystick_area, 120, 120);
     lv_obj_align(joystick_area, LV_ALIGN_CENTER, 0, -40);
@@ -396,26 +391,26 @@ static void create_joystick_test(lv_obj_t* content_container) {
     lv_obj_set_style_bg_color(joystick_indicator, lv_color_hex(0xE74C3C), 0);
     lv_obj_set_style_radius(joystick_indicator, 8, 0);
 
-    // 创建摇杆标签
+    // Create joystick label
     lv_obj_t* joy_label = lv_label_create(content_container);
     lv_label_set_text(joy_label, "Joystick");
     lv_obj_align(joy_label, LV_ALIGN_CENTER, 0, 20);
     lv_obj_set_style_text_font(joy_label, &lv_font_montserrat_14, 0);
 
-    // 创建数值显示标签
+    // Create value display label
     lv_obj_t* value_label = lv_label_create(content_container);
     lv_label_set_text(value_label, "X: 0  Y: 0");
     lv_obj_align(value_label, LV_ALIGN_BOTTOM_MID, 0, -60);
     lv_obj_set_style_text_font(value_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_align(value_label, LV_TEXT_ALIGN_CENTER, 0);
 
-    // 保存控件引用用于更新
+    // Save control references for update
     joystick_test_data_t* test_data = lv_mem_alloc(sizeof(joystick_test_data_t));
     test_data->joystick_indicator = joystick_indicator;
     test_data->value_label = value_label;
     lv_obj_set_user_data(content_container, test_data);
 
-    // 创建按钮容器
+    // Create button container
     lv_obj_t* btn_cont = lv_obj_create(content_container);
     lv_obj_set_size(btn_cont, 200, 50);
     lv_obj_align(btn_cont, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -423,7 +418,7 @@ static void create_joystick_test(lv_obj_t* content_container) {
     lv_obj_set_style_border_width(btn_cont, 0, 0);
     lv_obj_set_style_pad_all(btn_cont, 0, 0);
 
-    // 校准按钮
+    // Calibrate button
     lv_obj_t* calibrate_btn = lv_btn_create(btn_cont);
     lv_obj_set_size(calibrate_btn, 80, 40);
     lv_obj_align(calibrate_btn, LV_ALIGN_LEFT_MID, 10, 0);
@@ -434,7 +429,7 @@ static void create_joystick_test(lv_obj_t* content_container) {
     lv_label_set_text(calibrate_label, "Calibrate");
     lv_obj_center(calibrate_label);
 
-    // 测试按钮
+    // Test button
     lv_obj_t* test_btn = lv_btn_create(btn_cont);
     lv_obj_set_size(test_btn, 80, 40);
     lv_obj_align(test_btn, LV_ALIGN_RIGHT_MID, -10, 0);
@@ -448,13 +443,13 @@ static void create_joystick_test(lv_obj_t* content_container) {
     ESP_LOGI(TAG, "Joystick test interface created");
 }
 
-// 绘制立方体到画布
+// Draw cube on canvas
 static void draw_cube_on_canvas(lv_obj_t* canvas, point3d_t* initial_vertices, float angle_x, float angle_y,
                                 float angle_z) {
     lv_canvas_fill_bg(canvas, lv_color_hex(0x34495E), LV_OPA_COVER);
 
     point3d_t rotated_vertices[8];
-    // 旋转矩阵计算
+    // Rotation matrix calculation
     float sin_ax = sinf(angle_x), cos_ax = cosf(angle_x);
     float sin_ay = sinf(angle_y), cos_ay = cosf(angle_y);
     float sin_az = sinf(angle_z), cos_az = cosf(angle_z);
@@ -462,19 +457,19 @@ static void draw_cube_on_canvas(lv_obj_t* canvas, point3d_t* initial_vertices, f
     for (int i = 0; i < 8; i++) {
         point3d_t p = initial_vertices[i];
 
-        // 绕X轴旋转
+        // Rotate around X axis
         float y = p.y * cos_ax - p.z * sin_ax;
         float z = p.y * sin_ax + p.z * cos_ax;
         p.y = y;
         p.z = z;
 
-        // 绕Y轴旋转
+        // Rotate around Y axis
         float x = p.x * cos_ay + p.z * sin_ay;
         z = -p.x * sin_ay + p.z * cos_ay;
         p.x = x;
         p.z = z;
 
-        // 绕Z轴旋转
+        // Rotate around Z axis
         x = p.x * cos_az - p.y * sin_az;
         y = p.x * sin_az + p.y * cos_az;
         p.x = x;
@@ -483,18 +478,18 @@ static void draw_cube_on_canvas(lv_obj_t* canvas, point3d_t* initial_vertices, f
         rotated_vertices[i] = p;
     }
 
-    // 投影并绘制
+    // Project and draw
     lv_point_t projected_points[8];
     for (int i = 0; i < 8; i++) {
-        // 正交投影
+        // Orthogonal projection
         projected_points[i].x = (int16_t)(rotated_vertices[i].x + CANVAS_WIDTH / 2);
         projected_points[i].y = (int16_t)(rotated_vertices[i].y + CANVAS_HEIGHT / 2);
     }
 
     const int edges[12][2] = {
-        {0, 1}, {1, 2}, {2, 3}, {3, 0}, // 底面
-        {4, 5}, {5, 6}, {6, 7}, {7, 4}, // 顶面
-        {0, 4}, {1, 5}, {2, 6}, {3, 7}  // 侧边
+        {0, 1}, {1, 2}, {2, 3}, {3, 0}, // Bottom face
+        {4, 5}, {5, 6}, {6, 7}, {7, 4}, // Top face
+        {0, 4}, {1, 5}, {2, 6}, {3, 7}  // Side edges
     };
 
     lv_draw_line_dsc_t line_dsc;
@@ -510,7 +505,7 @@ static void draw_cube_on_canvas(lv_obj_t* canvas, point3d_t* initial_vertices, f
     }
 }
 
-// 创建陀螺仪测试界面
+// Create gyroscope test interface
 static void create_gyroscope_test(lv_obj_t* content_container) {
     if (!content_container)
         return;
@@ -524,7 +519,7 @@ static void create_gyroscope_test(lv_obj_t* content_container) {
     }
     lv_obj_set_user_data(content_container, test_data);
 
-    // 创建一个背景容器
+    // Create a background container
     lv_obj_t* cube_area = lv_obj_create(content_container);
     lv_obj_set_size(cube_area, CANVAS_WIDTH + 20, CANVAS_HEIGHT + 20);
     lv_obj_align(cube_area, LV_ALIGN_CENTER, 0, -20);
@@ -533,34 +528,34 @@ static void create_gyroscope_test(lv_obj_t* content_container) {
     lv_obj_set_style_radius(cube_area, 8, 0);
     lv_obj_set_style_border_width(cube_area, 0, 0);
 
-    // 创建画布
+    // Create canvas
     test_data->canvas = lv_canvas_create(cube_area);
     lv_canvas_set_buffer(test_data->canvas, canvas_buf, CANVAS_WIDTH, CANVAS_HEIGHT, LV_IMG_CF_TRUE_COLOR);
     lv_obj_center(test_data->canvas);
 
-    // 初始化立方体顶点
+    // Initialize cube vertices
     float size = 30.0f;
     point3d_t v[8] = {{-size, -size, -size}, {size, -size, -size}, {size, size, -size}, {-size, size, -size},
                       {-size, -size, size},  {size, -size, size},  {size, size, size},  {-size, size, size}};
     memcpy(test_data->initial_vertices, v, sizeof(v));
 
-    // 初始化角度
+    // Initialize angles
     test_data->angle_x = 0.0f;
     test_data->angle_y = 0.0f;
     test_data->angle_z = 0.0f;
 
-    // 绘制初始状态的立方体
+    // Draw initial state cube
     draw_cube_on_canvas(test_data->canvas, test_data->initial_vertices, test_data->angle_x, test_data->angle_y,
                         test_data->angle_z);
 
-    // 创建数值显示标签
+    // Create value display label
     test_data->value_label = lv_label_create(content_container);
     lv_label_set_text(test_data->value_label, "X: 0.00, Y: 0.00, Z: 0.00");
     lv_obj_align(test_data->value_label, LV_ALIGN_BOTTOM_MID, 0, -60);
     lv_obj_set_style_text_font(test_data->value_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_user_data(content_container, test_data); // 更新user_data
+    lv_obj_set_user_data(content_container, test_data); // Update user_data
 
-    // 创建按钮容器
+    // Create button container
     lv_obj_t* btn_cont = lv_obj_create(content_container);
     lv_obj_set_size(btn_cont, 200, 50);
     lv_obj_align(btn_cont, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -568,7 +563,7 @@ static void create_gyroscope_test(lv_obj_t* content_container) {
     lv_obj_set_style_border_width(btn_cont, 0, 0);
     lv_obj_set_style_pad_all(btn_cont, 0, 0);
 
-    // 校准按钮
+    // Calibrate button
     lv_obj_t* calibrate_btn = lv_btn_create(btn_cont);
     lv_obj_set_size(calibrate_btn, 80, 40);
     lv_obj_align(calibrate_btn, LV_ALIGN_LEFT_MID, 10, 0);
@@ -579,7 +574,7 @@ static void create_gyroscope_test(lv_obj_t* content_container) {
     lv_label_set_text(calibrate_label, "Calibrate");
     lv_obj_center(calibrate_label);
 
-    // 测试按钮
+    // Test button
     lv_obj_t* test_btn = lv_btn_create(btn_cont);
     lv_obj_set_size(test_btn, 80, 40);
     lv_obj_align(test_btn, LV_ALIGN_RIGHT_MID, -10, 0);
@@ -595,7 +590,7 @@ static void create_gyroscope_test(lv_obj_t* content_container) {
 
 
 
-// 测试任务实现
+// Test task implementation
 static void test_task(void* pvParameter);
 
 static void ui_update_timer_cb(lv_timer_t* timer) {
@@ -608,13 +603,13 @@ static void ui_update_timer_cb(lv_timer_t* timer) {
         if (test_data) {
             if (xQueueReceive(test_queue, &msg, 0) == pdPASS) {
                 if (msg.type == MSG_UPDATE_JOYSTICK) {
-                    // 将摇杆值映射到指示器位置
-                    // 假设摇杆值范围是 -1000 到 1000
-                    // 摇杆区域大小是 120x120，中心是 (60, 60)
-                    // 指示器移动范围是 -50 到 50
+                    // Map joystick values to indicator position
+                    // Assume joystick value range is -1000 to 1000
+                    // Joystick area size is 120x120, center is (60, 60)
+                    // Indicator movement range is -50 to 50
                     int16_t indicator_x = (int16_t)lv_map(msg.data.joystick.joy1_x, -1000, 1000, -50, 50);
                     int16_t indicator_y = (int16_t)lv_map(msg.data.joystick.joy1_y, -1000, 1000, -50, 50);
-                    lv_obj_set_pos(test_data->joystick_indicator, 50 + indicator_x, 50 - indicator_y); // Y轴反向
+                    lv_obj_set_pos(test_data->joystick_indicator, 50 + indicator_x, 50 - indicator_y); // Y axis reversed
 
                     lv_label_set_text_fmt(test_data->value_label, "X: %d  Y: %d", msg.data.joystick.joy1_x, msg.data.joystick.joy1_y);
                 }
@@ -625,21 +620,21 @@ static void ui_update_timer_cb(lv_timer_t* timer) {
     case CALIBRATION_STATE_GYROSCOPE_TEST: {
         gyro_test_data_t* test_data = (gyro_test_data_t*)lv_obj_get_user_data(g_content_container);
         if (test_data) {
-            // 处理所有队列消息
+            // Process all queue messages
             while (xQueueReceive(test_queue, &msg, 0) == pdPASS) {
                 if (msg.type == MSG_UPDATE_EULER) {
-                    // 【关键】使用后台 Fusion AHRS 的欧拉角，直接设置（无积分漂移）
-                    // 【坐标轴映射修正】根据实际硬件安装方向调整显示
-                    // 交换 Roll 和 Pitch，Yaw 反向
-                    test_data->angle_x = msg.data.euler.pitch * (M_PI / 180.0f);   // X 轴显示 Pitch
-                    test_data->angle_y = msg.data.euler.roll * (M_PI / 180.0f);    // Y 轴显示 Roll
-                    test_data->angle_z = -msg.data.euler.yaw * (M_PI / 180.0f);    // Z 轴显示 -Yaw（反向）
+                    // [Critical] Use Euler angles from background Fusion AHRS, set directly (no integration drift)
+                    // [Coordinate axis mapping correction] Adjust display according to actual hardware installation direction
+                    // Swap Roll and Pitch, Yaw reversed
+                    test_data->angle_x = msg.data.euler.pitch * (M_PI / 180.0f);   // X axis displays Pitch
+                    test_data->angle_y = msg.data.euler.roll * (M_PI / 180.0f);    // Y axis displays Roll
+                    test_data->angle_z = -msg.data.euler.yaw * (M_PI / 180.0f);    // Z axis displays -Yaw (reversed)
 
                     draw_cube_on_canvas(test_data->canvas, test_data->initial_vertices, 
                                         test_data->angle_x, test_data->angle_y, test_data->angle_z);
                 }
                 else if (msg.type == MSG_UPDATE_GYROSCOPE) {
-                    // 更新原始角速度数值显示
+                    // Update raw angular velocity numerical display
                     lv_label_set_text_fmt(test_data->value_label, "X: %.2f, Y: %.2f, Z: %.2f", 
                                           msg.data.gyro.x, msg.data.gyro.y, msg.data.gyro.z);
                 }
@@ -655,13 +650,13 @@ static void ui_update_timer_cb(lv_timer_t* timer) {
 
 static void test_task(void* pvParameter) {
     TickType_t last_wake_time = xTaskGetTickCount();
-    const TickType_t frequency = pdMS_TO_TICKS(20); // 20ms更新一次 (50Hz，提高采样率)
+    const TickType_t frequency = pdMS_TO_TICKS(20); // Update every 20ms (50Hz, increase sampling rate)
     test_msg_t msg;
 
     ESP_LOGI(TAG, "Test task started");
 
     while (1) {
-        // 检查是否需要停止
+        // Check if need to stop
         if (xQueueReceive(g_test_queue, &msg, 0) == pdTRUE) {
             if (msg.type == MSG_STOP_TEST) {
                 ESP_LOGI(TAG, "Test task stopping...");
@@ -677,7 +672,7 @@ static void test_task(void* pvParameter) {
                     test_msg_t update_msg;
                     update_msg.type = MSG_UPDATE_JOYSTICK;
 
-                    // 只使用摇杆1的数据
+                    // Only use joystick 1 data
                     update_msg.data.joystick.joy1_x = joystick_data.norm_joy1_x;
                     update_msg.data.joystick.joy1_y = joystick_data.norm_joy1_y;
 
@@ -686,10 +681,10 @@ static void test_task(void* pvParameter) {
                 break;
             }
             case CALIBRATION_STATE_GYROSCOPE_TEST: {
-                // 【方案：使用后台 Fusion AHRS 的结果】
-                // 后台任务已经在运行 Fusion AHRS，我们只读取结果，避免冲突
+                // [Plan: Use results from background Fusion AHRS]
+                // Background task is already running Fusion AHRS, we only read results to avoid conflicts
                 attitude_data_t attitude;
-                lsm6ds_control_get_attitude(&attitude);  // 带互斥锁保护
+                lsm6ds_control_get_attitude(&attitude);  // Protected by mutex
                 
                 test_msg_t euler_msg;
                 euler_msg.type = MSG_UPDATE_EULER;
@@ -698,7 +693,7 @@ static void test_task(void* pvParameter) {
                 euler_msg.data.euler.yaw = attitude.yaw;
                 xQueueSend(g_test_queue, &euler_msg, 0);
                 
-                // 同时读取原始角速度用于数值显示
+                // Simultaneously read raw angular velocity for numerical display
                 lsm6ds3_data_t imu_data;
                 if (lsm6ds3_read_all(&imu_data) == ESP_OK) {
                     apply_gyroscope_calibration(&imu_data.gyro.x, &imu_data.gyro.y, &imu_data.gyro.z);
@@ -726,7 +721,7 @@ static void test_task(void* pvParameter) {
     vTaskDelete(NULL);
 }
 
-// 更新摇杆测试界面
+// Update joystick test interface
 static void update_joystick_test_ui(int16_t joy1_x, int16_t joy1_y) {
     if (!g_content_container)
         return;
@@ -735,19 +730,16 @@ static void update_joystick_test_ui(int16_t joy1_x, int16_t joy1_y) {
     if (!test_data)
         return;
 
-    // 更新摇杆指示器位置 (-100 到 100 映射到圆形区域)
-    int16_t joy_pos_x = (joy1_x * 45) / 100;  // 45是圆形半径的75%
-    int16_t joy_pos_y = -(joy1_y * 45) / 100; // Y轴反向
+    // Update joystick indicator position (-100 to 100 mapped to circular area)
+    int16_t joy_pos_x = (joy1_x * 45) / 100;  // 45 is 75% of circle radius
+    int16_t joy_pos_y = -(joy1_y * 45) / 100; // Y axis reversed
     lv_obj_align(test_data->joystick_indicator, LV_ALIGN_CENTER, joy_pos_x, joy_pos_y);
 
-    // 更新数值显示
+    // Update numerical display
     char text_buf[32];
     snprintf(text_buf, sizeof(text_buf), "X: %d  Y: %d", joy1_x, joy1_y);
     lv_label_set_text(test_data->value_label, text_buf);
 }
-
-// 注意：update_gyroscope_test_ui 已删除
-// 现在使用 Fusion AHRS 的欧拉角，在 ui_update_timer_cb 中直接处理
 
 
 

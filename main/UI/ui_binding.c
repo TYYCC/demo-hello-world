@@ -1,6 +1,6 @@
 /**
  * @file ui_binding.c
- * @brief 配对模式UI界面 - 完整的ELRS配对集成
+ * @brief Pairing mode UI interface - complete ELRS pairing integration
  * @author TidyCraze
  * @date 2025-12-09
  */
@@ -15,24 +15,24 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
-// ELRS SDK函数声明
+// ELRS SDK function declarations
 extern void EnterBindingModeSafely(void);
 extern void ExitBindingMode_Public(void);
-extern bool InBindingMode;  // 全局变量，来自tx_main.cpp
-// 注意: SetSyncSpam() 在C++中定义，不能直接从C代码调用，但这个函数只是处理配置修改标志
-// 绑定模式不需要它，直接跳过即可
+extern bool InBindingMode;  // Global variable from tx_main.cpp
+// Note: SetSyncSpam() is defined in C++, cannot be called directly from C code, but this function only handles config modification flags
+// Binding mode does not need it, skip directly
 
-// UI通用函数声明
+// UI common function declarations
 extern const lv_font_t* get_current_font(void);
 extern void set_language_display(lv_obj_t* obj);
 extern void theme_apply_to_label(lv_obj_t* label, bool is_title);
 
-// 前向声明主菜单创建函数
+// Forward declaration of main menu creation function
 void ui_main_menu_create(lv_obj_t* parent);
 
 static const char* TAG = "UI_BINDING";
 
-// 语言文本定义
+// Language text definitions
 typedef struct {
     const char* title;
     const char* status_label;
@@ -80,7 +80,7 @@ static const binding_text_t binding_chinese_text = {
     .back_button = "返回",
 };
 
-// 配对页面状态结构体
+// Pairing page state structure
 typedef struct {
     lv_obj_t* screen;
     lv_obj_t* main_container;
@@ -109,8 +109,8 @@ static volatile bool g_binding_monitor_running = false;
 static TaskHandle_t g_binding_monitor_handle = NULL;
 
 /**
- * @brief 持续运行的绑定监控任务 - 完全独立于UI事件循环
- * 在应用启动时创建一次，然后持续监控binding请求
+ * @brief Continuously running binding monitor task - completely independent of UI event loop
+ * Created once at application startup, then continuously monitors for binding requests
  */
 static void binding_monitor_task(void* arg) {
     ESP_LOGI(TAG, "\n=== BINDING MONITOR TASK STARTED ===");
@@ -118,27 +118,27 @@ static void binding_monitor_task(void* arg) {
     g_binding_monitor_running = true;
     
     while (1) {
-        // 检查是否收到绑定请求
+        // Check if binding request received
         if (g_binding_start_requested) {
             ESP_LOGI(TAG, "\n>>> BINDING REQUEST RECEIVED <<<");
             g_binding_start_requested = false;
             
-            // 等待系统稳定
+            // Wait for system to stabilize
             ESP_LOGI(TAG, "→ Waiting 2 seconds for system to stabilize...");
             vTaskDelay(2000 / portTICK_PERIOD_MS);
             
-            // 记录进入绑定模式前的状态
+            // Record state before entering binding mode
             ESP_LOGI(TAG, "→ InBindingMode before: %d", InBindingMode);
             ESP_LOGI(TAG, "→ Calling EnterBindingModeSafely()");
             
-            // 调用ELRS绑定函数
+            // Call ELRS binding function
             EnterBindingModeSafely();
             
-            // 确认返回
+            // Confirm return
             ESP_LOGI(TAG, "EnterBindingModeSafely() returned");
             ESP_LOGI(TAG, "InBindingMode after: %d", InBindingMode);
             
-            // 等待绑定完成
+            // Wait for binding to complete
             uint64_t binding_start = esp_timer_get_time();
             uint64_t binding_timeout_us = 60000000;
             int last_log_sec = 0;
@@ -162,39 +162,39 @@ static void binding_monitor_task(void* arg) {
             }
         }
         
-        // 小延迟，防止忙轮询
+        // Small delay to prevent busy polling
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }
 
 /**
- * @brief 获取当前语言的文本
+ * @brief Get current language text
  */
 static const binding_text_t* get_binding_text(void) {
     return ui_get_current_language() == LANG_CHINESE ? &binding_chinese_text : &binding_english_text;
 }
 
 /**
- * @brief 返回按钮回调函数
+ * @brief Back button callback function
  */
 static void binding_back_button_cb(lv_event_t* e) {
     ESP_LOGI(TAG, "Back button pressed, returning to main menu");
     
-    // 停止配对计时器
+    // Stop pairing timer
     if (g_binding_state.status_update_timer != NULL) {
         lv_timer_del(g_binding_state.status_update_timer);
         g_binding_state.status_update_timer = NULL;
     }
     
-    // 清空绑定状态
+    // Clear binding state
     g_binding_state.binding_active = false;
     
-    // 退出SDK的配对模式
+    // Exit SDK pairing mode
     if (InBindingMode) {
         ExitBindingMode_Public();
     }
     
-    // 清除当前屏幕并返回主菜单
+    // Clear current screen and return to main menu
     lv_obj_clean(lv_scr_act());
     ui_main_menu_create(lv_scr_act());
 }

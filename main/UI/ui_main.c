@@ -1,19 +1,3 @@
-/*******************************************************************************
- * @file           : {fileName}
- * @brief          :
- * @author         : {author}
- * @date           : {createTime}
- * @version        : 1.0
- ******************************************************************************/
-/*
- * Author: tidycraze 2595256284@qq.com
- * Date: 2025-09-01 13:24:54
- * LastEditors: tidycraze 2595256284@qq.com
- * LastEditTime: 2025-09-08 15:45:09
- * FilePath: \demo-hello-world\main\UI\ui_main.c
- * Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置:
- * https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
- */
 /**
  * @file ui_main.c
  * @brief 主界面UI
@@ -33,13 +17,9 @@
 #include "ui_calibration.h"
 #include "ui_image_transfer.h"
 #include "ui_serial_display.h"
-#include "ui_state_manager.h" // 添加状态管理器头文件
-#include "ui_telemetry.h"     // 添加遥测UI头文件
-#include "ui_test.h"
-// #include "wifi_image_transfer.h"  // 文件不存在，暂时注释掉
+#include "ui_state_manager.h"
+#include "ui_telemetry.h"
 #include "wifi_manager.h"
-
-// audio receiver is declared in ui.h (ui_audio_receiver_create)
 
 // 全局变量保存时间标签和电池标签
 static lv_obj_t* g_time_label = NULL;
@@ -78,51 +58,10 @@ static void time_update_timer_cb(lv_timer_t* timer) {
     }
 }
 
-// 电池电量更新函数（由任务调用）
-void ui_main_update_battery_display(void) {
-    if (!g_battery_label) {
-        ESP_LOGW("UI_MAIN", "Battery label is NULL!");
-        return;
-    }
-
-    // 检查标签是否仍然有效
-    if (!lv_obj_is_valid(g_battery_label)) {
-        ESP_LOGW("UI_MAIN", "Battery label is no longer valid!");
-        g_battery_label = NULL; // 重置为NULL
-        return;
-    }
-
-    // 检查后台电池信息是否有更新
-    if (background_manager_is_battery_changed()) {
-        char battery_str[32];
-        background_battery_info_t battery_info;
-
-        if (background_manager_get_battery_str(battery_str, sizeof(battery_str)) == ESP_OK &&
-            background_manager_get_battery(&battery_info) == ESP_OK) {
-
-            // 更新文字
-            lv_label_set_text(g_battery_label, battery_str);
-
-            // 根据电量设置颜色
-            if (battery_info.percentage <= 30) {
-                // 30%以下显示红色
-                lv_obj_set_style_text_color(g_battery_label, lv_color_hex(0xFF0000), 0);
-            } else {
-                // 30%以上显示黑色
-                lv_obj_set_style_text_color(g_battery_label, lv_color_hex(0x000000), 0);
-            }
-
-            // 标记已显示
-            background_manager_mark_battery_displayed();
-            // 电池状态更新
-        }
-    }
-}
-
 // 菜单项回调函数类型
 typedef void (*menu_item_cb_t)(void);
 
-// 示例回调函数（后续扩展时实现）
+// 设置回调函数
 static void settings_cb(void) {
     // 保存主菜单状态
     if (g_menu_container) {
@@ -254,37 +193,6 @@ static void calibration_cb(void) {
     }
 }
 
-static void test_cb(void) {
-    // 保存主菜单状态
-    if (g_menu_container) {
-        int scroll_pos = lv_obj_get_scroll_y(g_menu_container);
-        ui_state_manager_save_main_menu(g_menu_container, g_current_selected_index, scroll_pos);
-        ui_state_manager_save_current_screen(UI_SCREEN_TEST);
-    }
-
-    lv_obj_t* screen = lv_scr_act();
-    if (screen) {
-        // 先停止时间更新定时器，避免访问已删除的UI元素
-        static lv_timer_t* timer = NULL;
-        if (timer) {
-            lv_timer_del(timer);
-            timer = NULL;
-            ESP_LOGI("UI_MAIN", "Time update timer stopped");
-        }
-
-        // 反初始化状态栏管理器
-        status_bar_manager_deinit();
-
-        // 重置全局UI指针
-        g_time_label = NULL;
-        g_battery_label = NULL;
-        g_menu_container = NULL;
-
-        lv_obj_clean(screen);   // 清空当前屏幕
-        ui_test_create(screen); // 加载测试界面
-    }
-}
-
 static void telemetry_cb(void) {
     // 保存主菜单状态
     if (g_menu_container) {
@@ -330,8 +238,6 @@ static menu_item_t menu_items[] = {
     {"Game", game_cb},
     {"Calibration", calibration_cb},
     {"Settings", settings_cb}
-    // {"Test", test_cb},
-    // 添加更多项...
 };
 
 static menu_item_t menu_items_zh[] = {
@@ -341,7 +247,6 @@ static menu_item_t menu_items_zh[] = {
     {"游戏", game_cb},
     {"校准", calibration_cb},           
     {"设置", settings_cb}
-    // {"测试", test_cb}
 };
 
 static void btn_event_cb(lv_event_t* e) {
@@ -359,8 +264,7 @@ static void btn_event_cb(lv_event_t* e) {
         }
     }
 
-    if (cb)
-        cb();
+    if (cb)cb();
 }
 
 void ui_main_menu_create(lv_obj_t* parent) {
@@ -526,7 +430,7 @@ void ui_main_menu_create(lv_obj_t* parent) {
         ESP_LOGE("UI_MAIN", "Failed to set status bar manager container: %s", esp_err_to_name(ret));
     }
 
-    // 恢复状态（如果有保存的状态）
+    // 恢复状态
     if (saved_state) {
         // 恢复选中的菜单项索引
         g_current_selected_index = saved_state->selected_index;
@@ -537,13 +441,10 @@ void ui_main_menu_create(lv_obj_t* parent) {
         ESP_LOGI("UI_MAIN", "Main menu state restored: selected=%d, scroll=%d",
                  saved_state->selected_index, saved_state->scroll_position);
 
-        // 可选：高亮显示之前选中的菜单项
         if (saved_state->selected_index >= 0 && saved_state->selected_index < num_items) {
             lv_obj_t* selected_btn =
                 lv_obj_get_child(g_menu_container, saved_state->selected_index);
             if (selected_btn) {
-                // 可以添加一些视觉效果来表示这是之前选中的项目
-                // 例如：稍微改变按钮的透明度或边框
                 lv_obj_set_style_bg_opa(selected_btn, LV_OPA_90, LV_PART_MAIN);
             }
         }
@@ -554,6 +455,4 @@ void ui_main_menu_create(lv_obj_t* parent) {
     }
 
     ESP_LOGI("UI_MAIN", "Main menu created with background manager support");
-
-    // 扩展提示：要添加新选项，在 menu_items 数组中添加新项，并实现对应的回调函数
 }

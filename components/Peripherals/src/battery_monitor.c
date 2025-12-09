@@ -86,19 +86,19 @@ esp_err_t battery_monitor_init(void) {
 
     // 尝试从NVS加载校准数据
     if (battery_monitor_load_calibration_from_nvs() == ESP_OK) {
-        ESP_LOGI(TAG, "Successfully loaded calibration data from NVS");
+        ESP_LOGD(TAG, "Successfully loaded calibration data from NVS");
     } else {
-        ESP_LOGI(TAG, "No calibration data found in NVS, using default values");
+        ESP_LOGD(TAG, "No calibration data found in NVS, using default values");
     }
 
     s_is_initialized = true;
-    ESP_LOGI(TAG, "Battery monitor initialized successfully");
+    ESP_LOGD(TAG, "Battery monitor initialized successfully");
     return ESP_OK;
 }
 
 esp_err_t battery_monitor_deinit(void) {
     s_is_initialized = false;
-    ESP_LOGI(TAG, "Battery monitor de-initialized");
+    ESP_LOGD(TAG, "Battery monitor de-initialized");
     return ESP_OK;
 }
 

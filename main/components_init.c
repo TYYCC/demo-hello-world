@@ -122,16 +122,16 @@ esp_err_t components_init(void) {
 
     // 初始化UI状态管理器
     ui_state_manager_init();
-    ESP_LOGI(TAG, "UI state manager initialized");
+    ESP_LOGD(TAG, "UI state manager initialized");
 
     // 初始化设置管理器
     settings_manager_init();
-    ESP_LOGI(TAG, "Settings manager initialized.");
+    ESP_LOGD(TAG, "Settings manager initialized.");
 
     // 初始化状态栏管理器
     ret = status_bar_manager_init();
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Status bar manager initialized");
+        ESP_LOGD(TAG, "Status bar manager initialized");
     } else {
         ESP_LOGW(TAG, "Status bar manager init failed: %s", esp_err_to_name(ret));
     }
@@ -154,7 +154,7 @@ esp_err_t components_init(void) {
     // 初始化校准管理器
     ret = calibration_manager_init();
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Calibration manager initialized");
+        ESP_LOGD(TAG, "Calibration manager initialized");
     } else {
         ESP_LOGW(TAG, "Calibration manager init failed: %s", esp_err_to_name(ret));
     }
@@ -165,7 +165,7 @@ esp_err_t components_init(void) {
     // 初始化电池监测引脚
     ret = battery_monitor_init();
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Battery monitor initialized");
+        ESP_LOGD(TAG, "Battery monitor initialized");
     } else {
         ESP_LOGW(TAG, "Battery monitor init failed: %s", esp_err_to_name(ret));
     }
@@ -178,7 +178,7 @@ esp_err_t components_init(void) {
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "LSM6DS3 initialization failed: %s", esp_err_to_name(ret));
     } else {
-        ESP_LOGI(TAG, "LSM6DS3 initialized successfully");
+        ESP_LOGD(TAG, "LSM6DS3 initialized successfully");
     }
 
     // 初始化GT911触摸控制器
@@ -186,11 +186,11 @@ esp_err_t components_init(void) {
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "GT911 initialization failed: %s", esp_err_to_name(ret));
     } else {
-        ESP_LOGI(TAG, "GT911 initialized successfully");
+        ESP_LOGD(TAG, "GT911 initialized successfully");
     }
 
     // 其他组件初始化可以在这里添加
 
-    ESP_LOGI(TAG, "All components initialized successfully");
+    ESP_LOGD(TAG, "All components initialized successfully");
     return ESP_OK;
 }

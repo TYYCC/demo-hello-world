@@ -76,7 +76,7 @@ static esp_err_t lsm6ds3_i2c_init(void) {
     }
 
     g_lsm6ds3_handle.i2c_port = BSP_I2C_NUM;
-    ESP_LOGI(TAG, "LSM6DS3 I2C device added successfully");
+    ESP_LOGD(TAG, "LSM6DS3 I2C device added successfully");
     return ESP_OK;
 }
 
@@ -87,7 +87,7 @@ static esp_err_t lsm6ds3_read_reg_i2c(uint8_t reg, uint8_t* data, size_t len) {
     esp_err_t ret = i2c_master_transmit_receive(g_lsm6ds3_handle.i2c_dev_handle, &reg, 1, data, len,
                                                 pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "I2C read failed: %s", esp_err_to_name(ret));
+        ESP_LOGD(TAG, "I2C read failed: %s", esp_err_to_name(ret));
     }
     return ret;
 }
@@ -102,7 +102,7 @@ static esp_err_t lsm6ds3_write_reg_i2c(uint8_t reg, uint8_t data) {
     ret = i2c_master_transmit(g_lsm6ds3_handle.i2c_dev_handle, write_buf, sizeof(write_buf),
                               pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "I2C write failed: %s", esp_err_to_name(ret));
+        ESP_LOGD(TAG, "I2C write failed: %s", esp_err_to_name(ret));
     }
 
     return ret;
@@ -396,7 +396,7 @@ esp_err_t lsm6ds3_init(void) {
     s_ahrs_inited = true;
     s_last_time_us = esp_timer_get_time();
     
-    ESP_LOGI(TAG, "Fusion AHRS and Offset initialized with optimized settings");
+    ESP_LOGD(TAG, "Fusion AHRS and Offset initialized with optimized settings");
 
     return ESP_OK;
 }
@@ -437,7 +437,7 @@ esp_err_t lsm6ds3_config_accel(uint8_t odr, uint8_t fs) {
     uint8_t ctrl1_xl;
 
     if (!g_lsm6ds3_handle.is_initialized) {
-        ESP_LOGE(TAG, "LSM6DS3 not initialized");
+        ESP_LOGD(TAG, "LSM6DS3 not initialized");
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -472,7 +472,7 @@ esp_err_t lsm6ds3_config_gyro(uint8_t odr, uint8_t fs) {
     uint8_t ctrl2_g;
 
     if (!g_lsm6ds3_handle.is_initialized) {
-        ESP_LOGE(TAG, "LSM6DS3 not initialized");
+        ESP_LOGD(TAG, "LSM6DS3 not initialized");
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -647,7 +647,7 @@ esp_err_t lsm6ds3_reset(void) {
     // 写入寄存器
     ret = lsm6ds3_write_reg(LSM6DS3_REG_CTRL3_C, ctrl3_c);
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Soft reset initiated");
+        ESP_LOGD(TAG, "Soft reset initiated");
     }
 
     return ret;
