@@ -57,6 +57,7 @@ else()
         "app/lsm6ds_control.c"
         "app/audio_receiver.c"
         "app/auto_pairing.c"
+        "app/src/ui_event_queue.c"
         
         # 图像传输模块
         "app/image_transfer/src/display_queue.c"

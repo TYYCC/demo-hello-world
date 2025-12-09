@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "wifi_manager.h"
+#include "ui_event_queue.h"
 #include <string.h>
 
 static const char* TAG = "BACKGROUND_MANAGER";
@@ -71,6 +72,16 @@ static void background_manager_task(void* pvParameters) {
                     // 本地时间更新
                 }
                 s_last_time_update = current_time_us;
+                
+                /* 向UI事件队列发送时间更新事件 */
+                if (s_time_changed) {
+                    lvgl_event_msg_t event;
+                    event.type = LVGL_EVENT_TIME_UPDATE;
+                    snprintf(event.data.time_data.time_str, sizeof(event.data.time_data.time_str),
+                             "%02d:%02d", s_current_time.hour, s_current_time.minute);
+                    ui_event_queue_send(&event);
+                }
+                
                 xSemaphoreGive(s_data_mutex);
             }
         }
@@ -92,6 +103,18 @@ static void background_manager_task(void* pvParameters) {
                         s_current_battery.is_critical = battery_info.is_critical;
                         s_current_battery.is_valid = true;
                         s_battery_changed = true;
+                        
+                        /* 向UI事件队列发送电池更新事件 */
+                        lvgl_event_msg_t event;
+                        event.type = LVGL_EVENT_BATTERY_UPDATE;
+                        snprintf(event.data.battery_data.battery_str, 
+                                sizeof(event.data.battery_data.battery_str),
+                                "%d%%", s_current_battery.percentage);
+                        event.data.battery_data.percentage = s_current_battery.percentage;
+                        event.data.battery_data.voltage_mv = s_current_battery.voltage_mv;
+                        event.data.battery_data.is_low_battery = s_current_battery.is_low_battery;
+                        event.data.battery_data.is_critical = s_current_battery.is_critical;
+                        ui_event_queue_send(&event);
                         
                         // 电池信息更新
                     }

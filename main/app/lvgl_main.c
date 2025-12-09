@@ -15,6 +15,7 @@
 #include "theme_manager.h"
 #include "ui.h"
 #include "st7789.h"
+#include "ui_event_queue.h"
 
 
 // 动画完成后的回调函数
@@ -56,8 +57,22 @@ void lvgl_main_task(void* pvParameters) {
 
     ESP_LOGI(TAG, "LVGL UI flow started with animation");
 
-    // LVGL主循环 - 专用任务处理
+    /* 初始化UI事件队列 */
+    esp_err_t queue_ret = ui_event_queue_init(32);
+    if (queue_ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize UI event queue: %s", esp_err_to_name(queue_ret));
+    } else {
+        ESP_LOGI(TAG, "UI event queue initialized successfully");
+    }
+
+    /* LVGL主循环 - 专用任务处理 */
     while (1) {
+        /* 处理来自其他任务的UI事件 */
+        lvgl_event_msg_t event;
+        while (ui_event_queue_receive(&event, 0) == ESP_OK) {
+            ui_event_queue_process(&event);
+        }
+
         lv_timer_handler();
         vTaskDelay(pdMS_TO_TICKS(16)); // 60Hz刷新率
     }

@@ -119,6 +119,26 @@ int status_bar_manager_get_visible_icon_count(void);
 bool status_bar_manager_is_icon_visible(status_icon_type_t icon_type);
 
 /**
+ * @brief 获取时间标签对象
+ * @return lv_obj_t* 时间标签对象指针
+ */
+lv_obj_t* status_bar_manager_get_time_label(void);
+
+/**
+ * @brief 获取电池标签对象
+ * @return lv_obj_t* 电池标签对象指针
+ */
+lv_obj_t* status_bar_manager_get_battery_label(void);
+
+/**
+ * @brief 设置WiFi连接状态和信号强度（用于UI事件队列）
+ * @param connected 是否连接
+ * @param signal_strength 信号强度 (-1: 未连接, 0-3: 信号等级)
+ * @return esp_err_t
+ */
+esp_err_t status_bar_manager_set_wifi_status(bool connected, int signal_strength);
+
+/**
  * @brief 释放状态栏管理器资源
  */
 void status_bar_manager_deinit(void);

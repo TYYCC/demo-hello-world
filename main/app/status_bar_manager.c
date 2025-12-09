@@ -17,6 +17,7 @@
 #include "freertos/task.h"
 #include "freertos/timers.h"
 #include "wifi_manager.h"
+#include "ui_event_queue.h"
 #include <string.h>
 
 static const char* TAG = "STATUS_BAR_MANAGER";
@@ -375,7 +376,39 @@ static void status_bar_update_timer_callback(TimerHandle_t xTimer) {
         return;
     }
 
-    check_and_update_states();
+    /* 不再直接调用check_and_update_states()
+       改为生成UI事件，由LVGL主任务处理 */
+
+    /* WiFi状态更新事件 */
+    wifi_manager_info_t wifi_info = wifi_manager_get_info();
+    lvgl_event_msg_t event;
+    event.type = LVGL_EVENT_WIFI_ICON_UPDATE;
+    event.data.wifi_data.connected = (wifi_info.state == WIFI_STATE_CONNECTED);
+    
+    if (event.data.wifi_data.connected) {
+        wifi_ap_record_t ap_info;
+        if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+            /* 信号强度转换为等级 */
+            if (ap_info.rssi >= -50)
+                event.data.wifi_data.signal_strength = 3;
+            else if (ap_info.rssi >= -60)
+                event.data.wifi_data.signal_strength = 2;
+            else if (ap_info.rssi >= -70)
+                event.data.wifi_data.signal_strength = 1;
+            else
+                event.data.wifi_data.signal_strength = 0;
+        } else {
+            event.data.wifi_data.signal_strength = 1;
+        }
+    } else {
+        event.data.wifi_data.signal_strength = -1;
+    }
+    ui_event_queue_send(&event);
+
+    /* 音频状态更新事件 */
+    event.type = LVGL_EVENT_AUDIO_ICON_UPDATE;
+    event.data.audio_data.visible = audio_receiver_is_receiving();
+    ui_event_queue_send(&event);
 
     if (g_manager->update_cb != NULL) {
         g_manager->update_cb();
@@ -494,3 +527,65 @@ static void check_and_update_states(void) {
     bool audio_active = audio_receiver_is_receiving();
     status_bar_manager_set_audio_status(audio_active);
 }
+
+/**
+ * @brief 获取时间标签对象
+ */
+lv_obj_t* status_bar_manager_get_time_label(void) {
+    if (g_manager == NULL) {
+        return NULL;
+    }
+    return g_manager->time_label;
+}
+
+/**
+ * @brief 获取电池标签对象
+ */
+lv_obj_t* status_bar_manager_get_battery_label(void) {
+    if (g_manager == NULL) {
+        return NULL;
+    }
+    return g_manager->battery_label;
+}
+
+/**
+ * @brief 设置WiFi连接状态和信号强度（用于UI事件队列）
+ */
+esp_err_t status_bar_manager_set_wifi_status(bool connected, int signal_strength) {
+    if (g_manager == NULL) {
+        ESP_LOGD(TAG, "Status bar manager not initialized");
+        return ESP_OK;
+    }
+
+    g_manager->wifi_signal_strength = signal_strength;
+    g_manager->wifi_connected = connected;
+
+    /* 隐藏所有WiFi图标 */
+    hide_all_wifi_icons();
+
+    if (!connected) {
+        /* 未连接时显示无信号图标 */
+        status_bar_manager_show_icon(STATUS_ICON_WIFI_NONE, true);
+    } else if (signal_strength >= 0 && signal_strength <= 3) {
+        /* 根据信号强度显示对应图标 */
+        switch (signal_strength) {
+            case 0:
+                status_bar_manager_show_icon(STATUS_ICON_WIFI_LOW, true);
+                break;
+            case 1:
+                status_bar_manager_show_icon(STATUS_ICON_WIFI_LOW, true);
+                break;
+            case 2:
+                status_bar_manager_show_icon(STATUS_ICON_WIFI_MEDIUM, true);
+                break;
+            case 3:
+                status_bar_manager_show_icon(STATUS_ICON_WIFI_HIGH, true);
+                break;
+            default:
+                status_bar_manager_show_icon(STATUS_ICON_WIFI_NONE, true);
+        }
+    }
+
+    return ESP_OK;
+}
+
