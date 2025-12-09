@@ -1053,24 +1053,27 @@ static void ExitBindingMode()
   if (!InBindingMode)
     return;
 
-  // Don't stop the timer! It would cause watchdog timeout.
-  // Instead, just clear the InBindingMode flag so timerCallback() switches to normal operation
+  // CRITICAL: Stop the timer BEFORE changing state
+  // This ensures no hardware interrupt is running while we modify global state
+  DBGLN("ExitBindingMode: stopping timer");
+  hwTimer::stop();
   
   DataUlSender.ResetState();
 
   // Reset CRCInit to UID-defined value
   OtaUpdateCrcInitFromUid();
   
-  // Clear binding mode flag FIRST - this tells timerCallback() to resume normal operation
+  // NOW it's safe to clear the flag
   InBindingMode = false;
 
-  // Return to original rate (timer will call this, and timerCallback will be ready)
-  SetRFLinkRate(config.GetRate());
+  // Reset to original connection state
+  setConnectionState(noCrossfire);
+  
+  // Reset telemetry receive phase
+  TelemetryRcvPhase = ttrpTransmitting;
 
-  // Restore normal connection state
-  UARTconnected();
-
-  DBGLN("Exiting binding mode");
+  DBGLN("ExitBindingMode: binding mode exited, timer stopped");
+  // The timer will be resumed by UART when connection is restored
 }
 
 void EnterBindingModeSafely()
