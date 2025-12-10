@@ -46,7 +46,7 @@ static void background_manager_task(void* pvParameters) {
         uint64_t current_time_us = esp_timer_get_time();
         
         // 更新时间（每分钟更新一次）
-        if (current_time_us - s_last_time_update >= 60000000) { // 1分钟 = 60,000,000微秒
+        if (current_time_us - s_last_time_update >= 5000000) { // 5秒 = 5,000,000微秒
             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 // 首先尝试从网络获取时间
                 char time_str[32];
