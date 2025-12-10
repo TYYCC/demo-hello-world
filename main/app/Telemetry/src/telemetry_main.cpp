@@ -5,11 +5,12 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "telemetry_data_converter.h"
-#include "telemetry_sender.h"
+#include "lvgl.h"
 #include <stdlib.h>
 #include <string.h>
+#include "OTA.h"
 
+#define CRSF_CHANNEL_VALUE_MID 992
 
 static const char* TAG = "telemetry_main";
 
@@ -20,6 +21,7 @@ static telemetry_data_callback_t data_callback = NULL;
 static telemetry_data_t current_data = {0};
 static SemaphoreHandle_t data_mutex = NULL;
 static QueueHandle_t control_queue = NULL;
+static bool g_sender_active = false;  // 发送器激活状态
 
 // 内部函数声明
 static void telemetry_data_task(void* pvParameters);
@@ -51,12 +53,7 @@ int telemetry_service_init(void) {
     }
 
     // 初始化发送器
-    if (telemetry_sender_init() != 0) {
-        ESP_LOGE(TAG, "Failed to initialize sender");
-        vSemaphoreDelete(data_mutex);
-        vQueueDelete(control_queue);
-        return -1;
-    }
+    g_sender_active = false;
 
     ESP_LOGI(TAG, "Telemetry service initialized");
     return 0;
@@ -108,7 +105,7 @@ int telemetry_service_stop(void) {
     service_status = TELEMETRY_STATUS_STOPPING;
 
     // 停止发送器
-    telemetry_sender_deactivate();
+    g_sender_active = false;
 
     // 等待任务自然退出
     int wait_count = 0;
@@ -177,12 +174,8 @@ void telemetry_service_update_data(const telemetry_data_t* telemetry_data) {
     }
 
     if (xSemaphoreTake(data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        // 直接复制新的ELRS格式遥测数据
         memcpy(&current_data, telemetry_data, sizeof(telemetry_data_t));
-
-        // 调用回调函数更新UI
         if (data_callback) {
-            // 在持有锁的情况下调用回调，以确保数据一致性
             data_callback(&current_data);
         }
 
@@ -243,10 +236,10 @@ static void telemetry_data_task(void* pvParameters) {
     ESP_LOGI(TAG, "Data task started");
 
     while (service_status == TELEMETRY_STATUS_RUNNING) {
-        // 0. 更新传感器数据
-        if (telemetry_data_converter_update() != ESP_OK) {
-            ESP_LOGW(TAG, "Failed to update sensor data");
-        }
+        // 0. 更新传感器数据 (移除，使用ELRS定义)
+        // if (telemetry_data_converter_update() != ESP_OK) {
+        //     ESP_LOGW(TAG, "Failed to update sensor data");
+        // }
 
         // 0.5 定期注入测试ELRS数据 (每500ms) - 用于演示UI
         test_data_timer++;
@@ -266,7 +259,43 @@ static void telemetry_data_task(void* pvParameters) {
         }
 
         // 2. 处理发送器逻辑 (发送心跳和遥控数据)
-        telemetry_sender_process();
+        // 打包RC数据到ELRS OTA包 (暂时移除，使用ELRS定义)
+        // {
+        //     // 获取遥控通道数据
+        //     uint16_t channels[16];
+        //     uint8_t channel_count = 0;
+
+        //     if (telemetry_data_converter_get_rc_channels(channels, &channel_count) == ESP_OK) {
+        //         // 准备通道数据为ELRS库格式 (uint32_t数组)
+        //         uint32_t channelData[16];
+        //         for (int i = 0; i < 16; i++) {
+        //             if (i < channel_count) {
+        //                 channelData[i] = channels[i];  // CRSF格式 (0-2047)
+        //             } else {
+        //                 channelData[i] = CRSF_CHANNEL_VALUE_MID;  // 992 (中位值)
+        //             }
+        //         }
+
+        //         // 获取ELRS的OTA包缓冲区 (全局变量，由ELRS库提供)
+        //         extern OTA_Packet_s otaPacket;
+                
+        //         // 调用ELRS库的打包函数 - 直接填充otaPacket
+        //         if (OtaPackChannelData != nullptr) {
+        //             OtaPackChannelData(&otaPacket, channelData, false);
+                    
+        //             // 调用ELRS库的CRC生成函数
+        //             if (OtaGeneratePacketCrc != nullptr) {
+        //                 OtaGeneratePacketCrc(&otaPacket);
+        //             }
+                    
+        //             ESP_LOGD(TAG, "RC data packed to ELRS OTA packet");
+        //         } else {
+        //             ESP_LOGW(TAG, "ELRS OTA functions not initialized");
+        //         }
+        //     } else {
+        //         ESP_LOGW(TAG, "Failed to get RC channel data");
+        //     }
+        // }
 
         // 将任务频率提高到50Hz，以获得更流畅的控制
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -321,12 +350,11 @@ void telemetry_service_inject_test_data(void) {
     
     xSemaphoreGive(data_mutex);
     
-    // 触发UI更新回调
     if (data_callback) {
-        data_callback(&current_data);
+        lv_async_call((lv_async_cb_t)data_callback, &current_data);
     }
     
-    ESP_LOGI(TAG, "Test data injected: RSSI1=%d dBm, LQ=%d%%, SNR=%d dB",
+    ESP_LOGD(TAG, "Test data injected: RSSI1=%d dBm, LQ=%d%%, SNR=%d dB",
              telemetry_rssi_raw_to_dbm(current_data.uplink_rssi_1),
              current_data.link_quality,
              current_data.snr);

@@ -5,6 +5,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 
 /**
  * @brief 遥测服务状态枚举
@@ -142,5 +146,9 @@ static inline uint8_t telemetry_rssi_dbm_to_percent(int16_t rssi_dbm) {
     if (rssi_dbm >= -60) return 100;
     return (uint8_t)((rssi_dbm + 100) * 100 / 40);
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TELEMETRY_MAIN_H

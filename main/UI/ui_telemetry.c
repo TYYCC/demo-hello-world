@@ -1,6 +1,5 @@
 #include "my_font.h" // 包含字体头文件
 #include "lvgl.h"
-#include "telemetry_data_converter.h" // Resolve undeclared identifiers
 #include "telemetry_main.h"           // 添加遥测服务头文件
 #include "theme_manager.h"
 #include "ui.h"
@@ -124,14 +123,13 @@ static lv_obj_t* start_stop_btn;       // 启动/停止按钮
 // 服务状态标志
 static bool telemetry_service_active = false;
 static lv_obj_t* gps_label;               // GPS状态标签
-static lv_timer_t* local_ui_update_timer; // 本地UI更新定时器
+// static lv_timer_t* local_ui_update_timer; // 本地UI更新定时器 (已移除)
 
 // 事件处理函数声明
 static void slider_event_handler(lv_event_t* e);
 static void settings_btn_event_handler(lv_event_t* e);
 static void start_stop_btn_event_handler(lv_event_t* e);
 static void telemetry_data_update_callback(const telemetry_data_t* data);
-static void local_ui_update_task(lv_timer_t* timer);
 
 /**
  * @brief 创建遥测界面
@@ -373,8 +371,8 @@ void ui_telemetry_create(lv_obj_t* parent) {
     lv_label_set_text(title4, text->extended_functions);
     set_telemetry_language_display(title4);
 
-    // 创建一个定时器，用于定期更新本地控制UI
-    local_ui_update_timer = lv_timer_create(local_ui_update_task, 50, NULL);
+    // 本地控制UI更新定时器已移除 (使用ELRS定义)
+    // local_ui_update_timer = lv_timer_create(local_ui_update_task, 50, NULL);
 }
 
 /**
@@ -499,39 +497,6 @@ static void start_stop_btn_event_handler(lv_event_t* e) {
                 } else {
                     LV_LOG_ERROR("Failed to stop telemetry service");
                 }
-            }
-        }
-    }
-}
-
-/**
- * @brief 解耦，将摇杆原始值(-100~100)转换为UI滑动条值(0~1000)
- */
-static int32_t convert_joystick_to_slider(int16_t joystick_value) {
-    // 摇杆值范围: -100 ~ 100
-    // 滑动条值范围: 0 ~ 1000 (500为中位)
-    // 转换: -100->0, 0->500, 100->1000
-    return (int32_t)((joystick_value + 100) * 5);
-}
-
-/**
- * @brief 本地UI更新任务
- *
- * @param timer 定时器
- */
-static void local_ui_update_task(lv_timer_t* timer) {
-    local_sensor_data_t sensor_data;
-    if (telemetry_data_converter_get_sensor_data(&sensor_data) == ESP_OK) {
-        if (sensor_data.joystick.valid) {
-            // 更新油门滑动条
-            if (throttle_slider && lv_obj_is_valid(throttle_slider)) {
-                int32_t throttle_val = convert_joystick_to_slider(sensor_data.joystick.joy_y);
-                lv_slider_set_value(throttle_slider, throttle_val, LV_ANIM_OFF);
-            }
-            // 更新方向滑动条
-            if (direction_slider && lv_obj_is_valid(direction_slider)) {
-                int32_t direction_val = convert_joystick_to_slider(sensor_data.joystick.joy_x);
-                lv_slider_set_value(direction_slider, direction_val, LV_ANIM_OFF);
             }
         }
     }
@@ -702,11 +667,11 @@ void ui_telemetry_update_language(void) {
 */
 // 添加UI清理函数
 void ui_telemetry_cleanup(void) {
-    // 删除UI更新定时器
-    if (local_ui_update_timer) {
-        lv_timer_del(local_ui_update_timer);
-        local_ui_update_timer = NULL;
-    }
+    // UI更新定时器已移除 (使用ELRS定义)
+    // if (local_ui_update_timer) {
+    //     lv_timer_del(local_ui_update_timer);
+    //     local_ui_update_timer = NULL;
+    // }
 
     // 停止遥测服务
     if (telemetry_service_active) {
