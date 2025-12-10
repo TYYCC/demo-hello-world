@@ -1,4 +1,4 @@
-#include "esp_log.h" // 引入日志功能
+#include "esp_log.h" // Include logging functionality
 #include "ui.h"
 #include "ui_numeric_keypad.h"
 #include "wifi_manager.h" 
@@ -6,10 +6,10 @@
 #include <string.h>       
 #include <stdint.h>
 
-// 为了实现返回功能，需要前向声明设置菜单的创建函数
+// Forward declaration for settings menu creation function to implement back functionality
 void ui_settings_create(lv_obj_t* parent);
 
-// 语言文本定义
+// Language text definitions
 typedef struct {
     const char* title;
     const char* enable_wifi;
@@ -40,7 +40,7 @@ typedef struct {
     const char* reason_unknown_fmt;
 } wifi_text_t;
 
-// 英文文本
+// English text
 static const wifi_text_t wifi_english_text = {
     .title = "WiFi Settings",
     .enable_wifi = "Enable WiFi",
@@ -71,7 +71,7 @@ static const wifi_text_t wifi_english_text = {
     .reason_unknown_fmt = "Unexpected error code %d",
 };
 
-// 中文文本
+// Chinese text
 static const wifi_text_t wifi_chinese_text = {
     .title = "无线网络设置",
     .enable_wifi = "启用无线网络",
@@ -102,7 +102,7 @@ static const wifi_text_t wifi_chinese_text = {
     .reason_unknown_fmt = "未知错误代码 %d",
 };
 
-// 获取当前语言文本
+// Get current language text
 static const wifi_text_t* get_wifi_text(void) {
     return (ui_get_current_language() == LANG_CHINESE) ? &wifi_chinese_text : &wifi_english_text;
 }
@@ -112,9 +112,9 @@ static const wifi_text_t* get_wifi_text(void) {
 
 static const char* TAG = "UI_WIFI";
 
-// UI元素句柄
+// UI element handles
 static lv_obj_t* g_status_label;
-static lv_obj_t* g_ssid_label; // 新增SSID标签
+static lv_obj_t* g_ssid_label; // SSID label
 static lv_obj_t* g_scan_status_label;
 static lv_obj_t* g_available_list;
 static lv_obj_t* g_scan_refresh_btn;
@@ -123,7 +123,7 @@ static lv_obj_t* g_wifi_switch_obj;
 static lv_timer_t* g_update_timer;
 static bool g_wifi_ui_initialized = false;
 static uint32_t g_last_scan_version = UINT32_MAX;
-static uint32_t g_last_wifi_list_version = UINT32_MAX;  // 追踪WiFi列表版本
+static uint32_t g_last_wifi_list_version = UINT32_MAX;  // Track WiFi list version
 static wifi_manager_state_t g_last_wifi_state = WIFI_STATE_DISABLED;
 static int32_t g_last_saved_network_count = -1;
 static uint32_t g_last_disconnect_notified_seq = 0;
@@ -153,7 +153,7 @@ typedef struct {
 
 typedef struct {
     char ssid[33];
-    bool from_saved_list;  // 标记是否来自已保存列表
+    bool from_saved_list;  // Flag indicating if from saved list
 } wifi_delete_request_t;
 
 static const char* get_reason_text(wifi_err_reason_t reason, const wifi_text_t* text) {
@@ -269,7 +269,6 @@ static void rebuild_available_network_list(void) {
     for (size_t i = 0; i < count; i++) {
         wifi_ap_button_data_t* data = lv_mem_alloc(sizeof(wifi_ap_button_data_t));
         if (!data) {
-            ESP_LOGW(TAG, "Failed to allocate memory for AP item");
             break;
         }
         memset(data, 0, sizeof(*data));
@@ -369,7 +368,7 @@ static void refresh_saved_network_dropdown_if_needed(void) {
         return;
     }
 
-    // 使用新的列表版本号来检测更新
+    // Use new list version number to detect updates
     uint32_t current_list_version = wifi_manager_get_wifi_list_version();
     int32_t total_count = wifi_manager_get_wifi_list_size();
     
@@ -400,7 +399,6 @@ static void rebuild_saved_network_dropdown(void) {
     size_t buffer_len = (size_t)count * 34 + 1;
     char* options = lv_mem_alloc(buffer_len);
     if (!options) {
-        ESP_LOGW(TAG, "Failed to allocate dropdown buffer");
         return;
     }
     options[0] = '\0';
@@ -418,8 +416,6 @@ static void rebuild_saved_network_dropdown(void) {
 
     lv_dropdown_set_options(g_saved_dropdown, options);
     lv_mem_free(options);
-    
-    ESP_LOGI(TAG, "Saved network dropdown rebuilt with %d entries", count);
 }
 
 static void trigger_wifi_scan(bool show_error) {
@@ -430,7 +426,6 @@ static void trigger_wifi_scan(bool show_error) {
     g_last_scan_version = UINT32_MAX;
     esp_err_t err = wifi_manager_start_scan(false);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "WiFi scan start failed: %s", esp_err_to_name(err));
         if (show_error) {
             char msg[96];
             snprintf(msg, sizeof(msg), "Scan failed: %s", esp_err_to_name(err));
@@ -446,7 +441,7 @@ static void trigger_wifi_scan(bool show_error) {
 
 static void wifi_manager_ui_event_cb(void) {
     g_last_scan_version = UINT32_MAX;
-    g_last_wifi_list_version = UINT32_MAX;  // 重置列表版本号
+    g_last_wifi_list_version = UINT32_MAX;  // Reset list version number
     g_last_saved_network_count = -1;
     g_last_wifi_state = wifi_manager_get_info().state;
     g_last_disconnect_notified_seq = wifi_manager_get_disconnect_sequence();
@@ -480,7 +475,6 @@ static void wifi_network_button_event_cb(lv_event_t* e) {
 
     wifi_connect_request_t* request = lv_mem_alloc(sizeof(wifi_connect_request_t));
     if (!request) {
-        ESP_LOGW(TAG, "Failed to allocate connect request");
         return;
     }
     memset(request, 0, sizeof(*request));
@@ -527,11 +521,7 @@ static void confirm_delete_wifi_cb(lv_event_t* e) {
     
     esp_err_t err = wifi_manager_remove_wifi_from_list(request->ssid);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "WiFi removed: %s", request->ssid);
-        // 触发列表更新
         g_last_wifi_list_version = UINT32_MAX;
-    } else {
-        ESP_LOGW(TAG, "Failed to remove WiFi: %s", request->ssid);
     }
     
     lv_mem_free(request);
@@ -559,7 +549,7 @@ static void show_delete_wifi_confirm(const char* ssid) {
     lv_obj_t* msgbox = lv_msgbox_create(lv_scr_act(), "Delete Network", msg, 
                                         (const char*[]){"Delete", "Cancel", ""}, false);
     
-    // 为删除按钮设置回调
+    // Set callback for delete button
     lv_obj_t* delete_btn = lv_msgbox_get_btns(msgbox);
     if (delete_btn) {
         wifi_delete_request_t* request = lv_mem_alloc(sizeof(wifi_delete_request_t));
@@ -605,7 +595,7 @@ static void ui_wifi_settings_cleanup(lv_event_t* e) {
     g_saved_dropdown = NULL;
     g_wifi_switch_obj = NULL;
     g_last_scan_version = UINT32_MAX;
-    g_last_wifi_list_version = UINT32_MAX;  // 重置列表版本号
+    g_last_wifi_list_version = UINT32_MAX;  // Reset list version number
     g_last_saved_network_count = -1;
     g_last_wifi_state = WIFI_STATE_DISABLED;
     g_last_disconnect_notified_seq = 0;
@@ -614,7 +604,7 @@ static void ui_wifi_settings_cleanup(lv_event_t* e) {
 }
 
 /**
- * @brief “详细信息”按钮回调
+ * @brief "Details" button callback
  * @param e
  */
 static void details_btn_event_cb(lv_event_t* e) {
@@ -672,7 +662,6 @@ static void wifi_switch_event_cb(lv_event_t* e) {
         if (info.state == WIFI_STATE_DISABLED) {
             esp_err_t err = wifi_manager_start();
             if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(err));
                 lv_obj_clear_state(switcher, LV_STATE_CHECKED);
                 return;
             }
@@ -697,7 +686,7 @@ static void power_slider_event_cb(lv_event_t* e) {
     lv_obj_t* slider = lv_event_get_target(e);
     lv_obj_t* power_label = (lv_obj_t*)lv_event_get_user_data(e);
     int32_t power_dbm = lv_slider_get_value(slider);
-    const wifi_text_t* text = get_wifi_text(); // 获取当前语言文本
+    const wifi_text_t* text = get_wifi_text(); // Get current language text
 
     lv_label_set_text_fmt(power_label, "%s: %d dBm", text->tx_power, (int)power_dbm);
     set_language_display(power_label);
@@ -705,8 +694,8 @@ static void power_slider_event_cb(lv_event_t* e) {
 }
 
 /**
- * @brief 创建WiFi设置界面的函数
- * @param parent 父对象, 通常是 lv_scr_act()
+ * @brief Function to create WiFi settings interface
+ * @param parent Parent object, usually lv_scr_act()
  */
 void ui_wifi_settings_create(lv_obj_t* parent) {
     g_wifi_ui_initialized = true;
@@ -716,49 +705,49 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
 
     wifi_manager_register_event_callback(wifi_manager_ui_event_cb);
 
-    // 1. 创建页面父级容器
+    // 1. Create page parent container
     lv_obj_t* page_parent_container;
     ui_create_page_parent_container(parent, &page_parent_container);
     lv_obj_add_event_cb(page_parent_container, ui_wifi_settings_cleanup, LV_EVENT_DELETE, NULL);
 
-    // 2. 创建顶部栏
+    // 2. Create top bar
     lv_obj_t* top_bar_container;
     lv_obj_t* title_container;
     ui_create_top_bar(page_parent_container, text->title, false, &top_bar_container,
                       &title_container, NULL);
 
-    // 3. 创建页面内容容器
+    // 3. Create page content container
     lv_obj_t* content_container;
     ui_create_page_content_area(page_parent_container, &content_container);
 
-    // 设置内容容器为垂直布局
+    // Set content container to vertical layout
     lv_obj_set_flex_flow(content_container, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(content_container, 5, 0);
     lv_obj_set_style_pad_gap(content_container, 10, 0);
-    // 隐藏滚动条，参考主页代码
+    // Hide scrollbar, reference main page code
     lv_obj_set_style_width(content_container, 0, LV_PART_SCROLLBAR);
     lv_obj_set_style_opa(content_container, LV_OPA_0, LV_PART_SCROLLBAR);
 
-    // === 创建WiFi功能容器 ===
+    // === Create WiFi function container ===
     lv_obj_t* wifi_container = lv_obj_create(content_container);
     lv_obj_set_width(wifi_container, lv_pct(100));
     lv_obj_set_height(wifi_container, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(wifi_container, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(wifi_container, 10, 0);
     lv_obj_set_style_pad_gap(wifi_container, 8, 0);
-    // 隐藏滚动条
+    // Hide scrollbar
     lv_obj_set_style_width(wifi_container, 0, LV_PART_SCROLLBAR);
     lv_obj_set_style_opa(wifi_container, LV_OPA_0, LV_PART_SCROLLBAR);
     theme_apply_to_container(wifi_container);
 
-    // WiFi容器标题
+    // WiFi container title
     lv_obj_t* wifi_title = lv_label_create(wifi_container);
     lv_label_set_text_fmt(wifi_title, "%s %s", LV_SYMBOL_WIFI, text->title);
     theme_apply_to_label(wifi_title, false);
     lv_obj_set_style_text_color(wifi_title, lv_palette_main(LV_PALETTE_BLUE), 0);
     set_language_display(wifi_title);
 
-    // --- 1. WiFi开关 ---
+    // --- 1. WiFi switch ---
     lv_obj_t* switch_item = lv_obj_create(wifi_container);
     lv_obj_set_width(switch_item, lv_pct(100));
     lv_obj_set_height(switch_item, LV_SIZE_CONTENT);
@@ -767,7 +756,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
                           LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_bg_opa(switch_item, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(switch_item, 0, 0);
-    // 隐藏滚动条
+    // Hide scrollbar
     lv_obj_clear_flag(switch_item, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* switch_label = lv_label_create(switch_item);
@@ -780,7 +769,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_add_event_cb(wifi_switch, wifi_switch_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     g_wifi_switch_obj = wifi_switch;
 
-    // --- 2. WiFi功率控制 ---
+    // --- 2. WiFi power control ---
     lv_obj_t* slider_container_item = lv_obj_create(wifi_container);
     lv_obj_set_width(slider_container_item, lv_pct(100));
     lv_obj_set_height(slider_container_item, LV_SIZE_CONTENT);
@@ -788,7 +777,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_set_style_pad_all(slider_container_item, 5, 0);
     lv_obj_set_style_bg_opa(slider_container_item, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(slider_container_item, 0, 0);
-    // 禁止滚动
+    // Disable scrolling
     lv_obj_clear_flag(slider_container_item, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t* power_val_label = lv_label_create(slider_container_item);
@@ -797,11 +786,11 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_t* power_slider = lv_slider_create(slider_container_item);
     lv_obj_set_size(power_slider, lv_pct(100), 8);
     lv_obj_set_style_pad_all(power_slider, 2, LV_PART_KNOB);
-    lv_slider_set_range(power_slider, 2, 20); // ESP32功率范围
+    lv_slider_set_range(power_slider, 2, 20); // ESP32 power range
     lv_obj_add_event_cb(power_slider, power_slider_event_cb, LV_EVENT_VALUE_CHANGED,
                         power_val_label);
 
-    // --- 3. 扫描与可用网络 ---
+    // --- 3. Scan and available networks ---
     lv_obj_t* scan_header = lv_obj_create(wifi_container);
     lv_obj_set_width(scan_header, lv_pct(100));
     lv_obj_set_height(scan_header, LV_SIZE_CONTENT);
@@ -845,7 +834,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_set_style_opa(g_available_list, LV_OPA_0, LV_PART_SCROLLBAR);
     theme_apply_to_container(g_available_list);
 
-    // --- 4. 已保存的网络列表 ---
+    // --- 4. Saved networks list ---
     lv_obj_t* dropdown_container_item = lv_obj_create(wifi_container);
     lv_obj_set_width(dropdown_container_item, lv_pct(100));
     lv_obj_set_height(dropdown_container_item, LV_SIZE_CONTENT);
@@ -865,10 +854,10 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     theme_apply_to_button(g_saved_dropdown, false);
     lv_obj_add_event_cb(g_saved_dropdown, wifi_dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     g_last_saved_network_count = -1;
-    g_last_wifi_list_version = UINT32_MAX;  // 初始化列表版本号
+    g_last_wifi_list_version = UINT32_MAX;  // Initialize list version number
     rebuild_saved_network_dropdown();
 
-    // --- 4. WiFi信息显示 ---
+    // --- 4. WiFi information display ---
     lv_obj_t* info_container_item = lv_obj_create(wifi_container);
     lv_obj_set_width(info_container_item, lv_pct(100));
     lv_obj_set_height(info_container_item, LV_SIZE_CONTENT);
@@ -876,7 +865,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     lv_obj_set_style_pad_all(info_container_item, 5, 0);
     lv_obj_set_style_bg_opa(info_container_item, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(info_container_item, 0, 0);
-    // 隐藏滚动条
+    // Hide scrollbar
     lv_obj_set_style_width(info_container_item, 0, LV_PART_SCROLLBAR);
     lv_obj_set_style_opa(info_container_item, LV_OPA_0, LV_PART_SCROLLBAR);
     lv_obj_clear_flag(info_container_item, LV_OBJ_FLAG_SCROLLABLE);
@@ -886,7 +875,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     g_ssid_label = lv_label_create(info_container_item);
     theme_apply_to_label(g_ssid_label, false);
 
-    // --- 5. "详细信息"按钮 ---
+    // --- 5. "Details" button ---
     lv_obj_t* details_btn = lv_btn_create(wifi_container);
     lv_obj_set_width(details_btn, lv_pct(100));
     lv_obj_set_height(details_btn, 40);
@@ -899,7 +888,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     theme_apply_to_label(details_btn_label, false);
     set_language_display(details_btn_label);
 
-    // 初始化UI状态
+    // Initialize UI state
     wifi_manager_info_t current_info = wifi_manager_get_info();
     if (current_info.state == WIFI_STATE_DISABLED) {
         lv_obj_clear_state(wifi_switch, LV_STATE_CHECKED);
@@ -922,10 +911,10 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
         trigger_wifi_scan(false);
     }
 
-    // 创建并启动UI更新定时器
+    // Create and start UI update timer
     g_update_timer = lv_timer_create(ui_update_timer_cb, 500, NULL);
 
-    // 立即更新一次UI
+    // Update UI immediately
     update_wifi_info();
 }
 

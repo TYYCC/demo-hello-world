@@ -228,10 +228,7 @@ static void serial_display_task(void* pvParameters) {
     // 任务保持运行，监控串口显示状态
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(30000)); // 30秒检查一次
-        if (serial_display_is_running()) {
-            ESP_LOGI(TAG, "Serial display server running normally");
-        } else {
-            ESP_LOGW(TAG, "Serial display server stopped, attempting restart");
+        if (serial_display_is_running() == NULL) {
             serial_display_start(8080);
         }
     }
