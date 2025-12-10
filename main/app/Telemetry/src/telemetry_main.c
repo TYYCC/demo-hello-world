@@ -6,7 +6,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
-#include "telemetry_data_converter.h" // 添加缺失的头文件
+#include "telemetry_data_converter.h"
 #include "telemetry_receiver.h"
 #include "telemetry_sender.h"
 #include <stdlib.h>
@@ -208,19 +208,14 @@ int telemetry_service_send_control(int32_t throttle, int32_t direction) {
  *
  * @param telemetry_data 遥测数据
  */
-void telemetry_service_update_data(const telemetry_data_payload_t* telemetry_data) {
+void telemetry_service_update_data(const telemetry_data_t* telemetry_data) {
     if (telemetry_data == NULL || service_status != TELEMETRY_STATUS_RUNNING) {
         return;
     }
 
     if (xSemaphoreTake(data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        // 将从网络接收的协议数据转换为本地使用的数据结构
-        current_data.voltage = telemetry_data->voltage_mv / 1000.0f;
-        current_data.current = telemetry_data->current_ma / 1000.0f;
-        current_data.roll = telemetry_data->roll_deg / 100.0f;
-        current_data.pitch = telemetry_data->pitch_deg / 100.0f;
-        current_data.yaw = telemetry_data->yaw_deg / 100.0f;
-        current_data.altitude = telemetry_data->altitude_cm / 100.0f;
+        // 直接复制新的ELRS格式遥测数据
+        memcpy(&current_data, telemetry_data, sizeof(telemetry_data_t));
 
         // 调用回调函数更新UI
         if (data_callback) {
@@ -308,10 +303,11 @@ static void telemetry_data_task(void* pvParameters) {
         }
 
         // 1. 处理来自UI的控制命令 (使用非阻塞接收)
+        // 注：控制命令现在通过ELRS协议的RC通道传输
         if (xQueueReceive(control_queue, &cmd, 0) == pdPASS) {
             if (xSemaphoreTake(data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                current_data.throttle = cmd.throttle;
-                current_data.direction = cmd.direction;
+                // 控制数据现在由ELRS RC通道处理
+                // TODO: 将throttle/direction映射到RC通道数据
                 xSemaphoreGive(data_mutex);
             }
         }
@@ -322,7 +318,7 @@ static void telemetry_data_task(void* pvParameters) {
         // 将任务频率提高到50Hz，以获得更流畅的控制
         vTaskDelay(pdMS_TO_TICKS(20));
     }
-
+ 
     ESP_LOGI(TAG, "Data task ended");
     telemetry_task_handle = NULL;
     vTaskDelete(NULL);

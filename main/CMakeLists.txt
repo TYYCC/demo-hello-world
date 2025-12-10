@@ -74,8 +74,6 @@ else()
         "app/Telemetry/src/telemetry_main.c"
         "app/Telemetry/src/telemetry_receiver.c"
         "app/Telemetry/src/telemetry_sender.c"
-        "app/Telemetry/src/tcp_server_hb.c"
-        "app/Telemetry/src/tcp_command_server.c"
         
         # 字体相关文件
         "fonts/font_init.c"

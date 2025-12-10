@@ -1,24 +1,13 @@
 /**
  * @file telemetry_data_converter.c
  * @brief 本地传感器数据获取和转换模块
- * @author Your Name
- * @date 2024
- * 
- * 该模块负责：
- * 1. 获取本地传感器数据（摇杆、IMU、电池等）
- * 2. 将传感器数据转换为遥控协议格式
- * 3. 为扩展传感器预留接口
+ * @author TidyCraze
+ * @date 2025-12-10
  */
 
 #include "telemetry_data_converter.h"
 #include "telemetry_protocol.h"
 #include "joystick_adc.h"
-#ifdef CONFIG_ENABLE_IMU_SENSOR
-#include "lsm6ds3.h"               // 可选：IMU传感器
-#endif
-#ifdef CONFIG_ENABLE_BATTERY_MONITOR
-#include "battery_monitor.h"       // 可选：电池监测
-#endif
 #include "esp_log.h"
 #include "esp_timer.h"
 #include <string.h>
@@ -100,27 +89,6 @@ esp_err_t telemetry_data_converter_update(void) {
     // IMU传感器未启用
 #endif
     
-    // 3. 获取电池数据 (可选功能)
-#ifdef CONFIG_ENABLE_BATTERY_MONITOR
-    battery_info_t battery_info;
-    if (battery_monitor_read(&battery_info) == ESP_OK) {
-        s_cached_data.battery.voltage_mv = battery_info.voltage_mv;
-        s_cached_data.battery.current_ma = 0; // 当前电池监测不支持电流检测
-        s_cached_data.battery.valid = true;
-        
-        // 电池数据转换
-    } else {
-        s_cached_data.battery.valid = false;
-        ESP_LOGW(TAG, "Failed to read battery data");
-    }
-#else
-    // 电池监测功能未启用，使用默认值
-    s_cached_data.battery.voltage_mv = 3700; // 默认3.7V
-    s_cached_data.battery.current_ma = 100;  // 默认100mA
-    s_cached_data.battery.valid = false;
-    // 电池监控未启用
-#endif
-    
     // 4. 更新时间戳
     s_cached_data.timestamp_ms = esp_timer_get_time() / 1000;
     s_data_valid = true;
@@ -156,7 +124,7 @@ esp_err_t telemetry_data_converter_get_rc_channels(uint16_t *channels, uint8_t *
     return ESP_OK;
 }
 
-esp_err_t telemetry_data_converter_get_telemetry_data(telemetry_data_payload_t *telemetry) {
+esp_err_t telemetry_data_converter_get_telemetry_data(telemetry_data_t *telemetry) {
     if (!telemetry) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -166,27 +134,27 @@ esp_err_t telemetry_data_converter_get_telemetry_data(telemetry_data_payload_t *
         return ESP_ERR_INVALID_STATE;
     }
     
-    // 填充遥测数据
+    // 填充ELRS扩展遥测数据
     if (s_cached_data.battery.valid) {
-        telemetry->voltage_mv = s_cached_data.battery.voltage_mv;
-        telemetry->current_ma = s_cached_data.battery.current_ma;
+        telemetry->voltage = s_cached_data.battery.voltage_mv / 1000.0f;
+        telemetry->current = s_cached_data.battery.current_ma / 1000.0f;
     } else {
-        telemetry->voltage_mv = 0;
-        telemetry->current_ma = 0;
+        telemetry->voltage = 0;
+        telemetry->current = 0;
     }
     
     if (s_cached_data.imu.valid) {
-        telemetry->roll_deg = convert_angle_to_telemetry(s_cached_data.imu.roll);
-        telemetry->pitch_deg = convert_angle_to_telemetry(s_cached_data.imu.pitch);
-        telemetry->yaw_deg = convert_angle_to_telemetry(s_cached_data.imu.yaw);
+        telemetry->roll = s_cached_data.imu.roll;
+        telemetry->pitch = s_cached_data.imu.pitch;
+        telemetry->yaw = s_cached_data.imu.yaw;
     } else {
-        telemetry->roll_deg = 0;
-        telemetry->pitch_deg = 0;
-        telemetry->yaw_deg = 0;
+        telemetry->roll = 0;
+        telemetry->pitch = 0;
+        telemetry->yaw = 0;
     }
     
     // 高度数据 - 目前暂无传感器，设为0
-    telemetry->altitude_cm = 0;
+    telemetry->altitude = 0;
     
     // 遥测数据打包完成
     
@@ -227,21 +195,4 @@ esp_err_t telemetry_data_converter_get_device_status(uint8_t *status) {
     }
     
     return ESP_OK;
-}
-
-// ==================== 扩展传感器接口 ====================
-
-esp_err_t telemetry_data_converter_add_custom_sensor(sensor_id_t sensor_id, 
-                                                     sensor_read_func_t read_func, 
-                                                     void *user_data) {
-    // TODO: 实现自定义传感器注册功能
-    // 可以使用链表或数组来管理多个传感器
-    ESP_LOGW(TAG, "Custom sensor registration not implemented yet");
-    return ESP_ERR_NOT_SUPPORTED;
-}
-
-esp_err_t telemetry_data_converter_remove_custom_sensor(sensor_id_t sensor_id) {
-    // TODO: 实现自定义传感器移除功能
-    ESP_LOGW(TAG, "Custom sensor removal not implemented yet");
-    return ESP_ERR_NOT_SUPPORTED;
 }

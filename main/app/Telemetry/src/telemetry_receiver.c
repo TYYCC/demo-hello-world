@@ -16,7 +16,7 @@ static const char* TAG = "telemetry_receiver";
 
 // 内部函数声明
 static void handle_client_connection(int client_sock);
-static void process_received_frame(const parsed_frame_t* frame);
+static void process_received_data(const uint8_t* data, size_t len);
 
 // 全局变量
 static int g_listen_sock = -1;
@@ -148,23 +148,9 @@ static void handle_client_connection(int client_sock) {
             buffer_len += len;
             last_packet_time = xTaskGetTickCount();
 
-            // 循环处理缓冲区中的数据，直到无法解析出完整的帧
-            while (buffer_len > 0) {
-                parsed_frame_t frame;
-                size_t frame_len = telemetry_protocol_parse_frame(rx_buffer, buffer_len, &frame);
-
-                if (frame_len > 0) {
-                    // 成功解析出一个帧
-                    process_received_frame(&frame);
-
-                    // 从缓冲区移除已处理的帧
-                    memmove(rx_buffer, rx_buffer + frame_len, buffer_len - frame_len);
-                    buffer_len -= frame_len;
-                } else {
-                    // 缓冲区中没有完整的帧，等待更多数据
-                    break;
-                }
-            }
+            // 处理接收到的ELRS数据
+            process_received_data(rx_buffer, buffer_len);
+            buffer_len = 0; // 清空缓冲区 (简化处理)
         } else if (len == 0) {
             ESP_LOGI(TAG, "Connection closed by client");
             break;
@@ -192,44 +178,20 @@ static void handle_client_connection(int client_sock) {
 }
 
 /**
- * @brief 处理接收到的帧
- *
- * @param frame 解析后的帧
+ * @brief 处理接收到的数据 (ELRS协议)
+ * 
+ * @param data 接收到的原始数据
+ * @param len 数据长度
  */
-static void process_received_frame(const parsed_frame_t* frame) {
-    if (!frame->crc_ok) {
-        ESP_LOGW(TAG, "Received a frame with bad CRC. Type: 0x%02X", frame->header.type);
+static void process_received_data(const uint8_t* data, size_t len) {
+    if (!data || len == 0) {
         return;
     }
 
-    switch (frame->header.type) {
-    case FRAME_TYPE_TELEMETRY:
-        if (frame->payload_len == sizeof(telemetry_data_payload_t)) {
-            const telemetry_data_payload_t* telemetry_data = (const telemetry_data_payload_t*)frame->payload;
-            ESP_LOGI(TAG, "Received telemetry: V=%umV, I=%umA, Roll=%.2f", telemetry_data->voltage_mv,
-                     telemetry_data->current_ma, telemetry_data->roll_deg / 100.0f);
-
-            // 将数据传递给主服务
-            telemetry_service_update_data(telemetry_data);
-
-        } else {
-            ESP_LOGW(TAG, "Received telemetry frame with incorrect payload size: %d", frame->payload_len);
-        }
-        break;
-
-    case FRAME_TYPE_EXT_CMD:
-        // TODO: 处理扩展命令
-        ESP_LOGI(TAG, "Received extended command frame (not implemented)");
-        break;
-
-    // 不应该收到遥控或心跳包，因为这是ESP32发送的
-    case FRAME_TYPE_RC:
-    case FRAME_TYPE_HEARTBEAT:
-        ESP_LOGW(TAG, "Received unexpected frame type from client: 0x%02X", frame->header.type);
-        break;
-
-    default:
-        ESP_LOGW(TAG, "Received unknown frame type: 0x%02X", frame->header.type);
-        break;
-    }
+    // 对于ELRS协议，直接处理数据包
+    // TODO: 实现ELRS数据包解析和处理
+    // 目前作为占位符，可以根据实际ELRS数据包格式进行实现
+    
+    ESP_LOGD(TAG, "Received %d bytes of ELRS data", (int)len);
 }
+

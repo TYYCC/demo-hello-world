@@ -4,13 +4,11 @@
 #include "freertos/task.h"
 
 // 项目本地头文件
-#include "../app/Telemetry/inc/tcp_server_hb.h"
 #include "../app/inc/auto_pairing.h"
 #include "background_manager.h"
 #include "joystick_adc.h"
 #include "lsm6ds_control.h"
 #include "lvgl_main.h"
-#include "power_management.h"
 #include "serial_display.h"
 #include "task_init.h"
 #include "wifi_manager.h"
@@ -21,9 +19,6 @@
 extern esp_err_t audio_receiver_start(void);
 extern void audio_receiver_stop(void);
 
-// 声明TCP心跳服务器任务函数
-static void tcp_hb_server_task(void* pvParameters);
-
 static const char* TAG = "TASK_INIT";
 
 // 任务句柄存储
@@ -32,7 +27,6 @@ static TaskHandle_t s_monitor_task_handle = NULL;
 static TaskHandle_t s_joystick_task_handle = NULL;
 static TaskHandle_t s_wifi_task_handle = NULL;
 static TaskHandle_t s_serial_display_task_handle = NULL;
-static TaskHandle_t s_tcp_hb_server_task_handle = NULL;
 
 // 摇杆ADC采样任务（200Hz）
 static void joystick_adc_task(void* pvParameters) {
@@ -256,29 +250,12 @@ esp_err_t init_serial_display_task(void) {
     return ESP_OK;
 }
 
+/*
 esp_err_t init_tcp_hb_server_task(void) {
-    if (s_tcp_hb_server_task_handle != NULL) {
-        ESP_LOGW(TAG, "TCP heartbeat server task already running");
-        return ESP_OK;
-    }
-
-    BaseType_t result = xTaskCreatePinnedToCore(tcp_hb_server_task,           // 任务函数
-                                                "TCP_HB_Server",              // 任务名称
-                                                TASK_STACK_MEDIUM,            // 堆栈大小 (4KB)
-                                                NULL,                         // 参数
-                                                TASK_PRIORITY_LOW,            // 低优先级
-                                                &s_tcp_hb_server_task_handle, // 任务句柄
-                                                0                             // 绑定到Core 0
-    );
-
-    if (result != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create TCP heartbeat server task");
-        return ESP_ERR_NO_MEM;
-    }
-
-    ESP_LOGI(TAG, "TCP heartbeat server task created successfully on Core 0");
+    // TCP心跳服务器已禁用（使用ELRS协议）
     return ESP_OK;
 }
+*/
 
 esp_err_t init_all_tasks(void) {
     ESP_LOGI(TAG, "Initializing all tasks...");
@@ -329,12 +306,12 @@ esp_err_t init_all_tasks(void) {
         return ret;
     }
 
-    // 初始化TCP心跳服务器任务（后台服务）
-    ret = init_tcp_hb_server_task();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to init TCP heartbeat server task");
-        return ret;
-    }
+    // 初始化TCP心跳服务器任务（已禁用，使用ELRS协议）
+    // ret = init_tcp_hb_server_task();
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "Failed to init TCP heartbeat server task");
+    //     return ret;
+    // }
     ui_start_animation_update_state(UI_STAGE_FINALIZING);
     ui_start_animation_set_progress((float)6 / UI_STAGE_DONE * 100);
     vTaskDelay(pdMS_TO_TICKS(200)); // 确保动画有时间更新
@@ -383,12 +360,13 @@ esp_err_t stop_all_tasks(void) {
         ESP_LOGI(TAG, "Serial display task stopped");
     }
 
-    if (s_tcp_hb_server_task_handle) {
-        tcp_server_hb_stop(); // 先停止TCP心跳服务器
-        vTaskDelete(s_tcp_hb_server_task_handle);
-        s_tcp_hb_server_task_handle = NULL;
-        ESP_LOGI(TAG, "TCP heartbeat server task stopped");
-    }
+    // TCP心跳服务器任务已禁用（使用ELRS协议）
+    // if (s_tcp_hb_server_task_handle) {
+    //     tcp_server_hb_stop(); // 先停止TCP心跳服务器
+    //     vTaskDelete(s_tcp_hb_server_task_handle);
+    //     s_tcp_hb_server_task_handle = NULL;
+    //     ESP_LOGI(TAG, "TCP heartbeat server task stopped");
+    // }
 
     if (s_lsm6ds3_control_task != NULL) {
         vTaskDelete(s_lsm6ds3_control_task);
@@ -401,6 +379,7 @@ esp_err_t stop_all_tasks(void) {
 }
 
 // TCP心跳服务器回调函数
+/*
 static void tcp_hb_heartbeat_callback(uint32_t client_index,
                                       const tcp_server_hb_payload_t* payload) {
     ESP_LOGI(TAG, "TCP心跳包接收: 客户端=%d, 状态=%d, 时间戳=%u", client_index,
@@ -471,6 +450,7 @@ static void tcp_hb_server_task(void* pvParameters) {
         }
     }
 }
+*/
 
 void list_running_tasks(void) {
     ESP_LOGI(TAG, "=== Running Tasks ===");
@@ -479,7 +459,7 @@ void list_running_tasks(void) {
     ESP_LOGI(TAG, "Joystick Task: %s", s_joystick_task_handle ? "Running" : "Stopped");
     ESP_LOGI(TAG, "WiFi Task: %s", s_wifi_task_handle ? "Running" : "Stopped");
     ESP_LOGI(TAG, "Serial Display Task: %s", s_serial_display_task_handle ? "Running" : "Stopped");
-    ESP_LOGI(TAG, "TCP HB Server Task: %s", s_tcp_hb_server_task_handle ? "Running" : "Stopped");
+    // ESP_LOGI(TAG, "TCP HB Server Task: %s", s_tcp_hb_server_task_handle ? "Running" : "Stopped");  // TCP HB已禁用
     ESP_LOGI(TAG, "==================");
 }
 
@@ -489,4 +469,4 @@ TaskHandle_t get_monitor_task_handle(void) { return s_monitor_task_handle; }
 TaskHandle_t get_joystick_task_handle(void) { return s_joystick_task_handle; }
 TaskHandle_t get_wifi_task_handle(void) { return s_wifi_task_handle; }
 TaskHandle_t get_serial_display_task_handle(void) { return s_serial_display_task_handle; }
-TaskHandle_t get_tcp_hb_server_task_handle(void) { return s_tcp_hb_server_task_handle; }
+// TaskHandle_t get_tcp_hb_server_task_handle(void) { return NULL; } // TCP HB服务器已禁用

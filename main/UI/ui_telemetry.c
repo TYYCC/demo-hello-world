@@ -99,6 +99,19 @@ static void set_telemetry_language_display(lv_obj_t* obj) {
 // 遥测界面的全局变量
 static lv_obj_t* throttle_slider;      // 油门滑动条
 static lv_obj_t* direction_slider;     // 方向滑动条
+
+// ELRS链路统计标签
+static lv_obj_t* rssi_1_label;         // 天线1 RSSI
+static lv_obj_t* rssi_2_label;         // 天线2 RSSI
+static lv_obj_t* lq_label;             // 链路质量 LQ
+static lv_obj_t* snr_label;            // 信噪比 SNR
+static lv_obj_t* antenna_label;        // 天线选择
+static lv_obj_t* model_match_label;    // 模型匹配
+
+// 遥控通道显示 (16个通道)
+static lv_obj_t* channel_labels[16];   // 通道标签数组
+
+// 扩展遥测标签
 static lv_obj_t* voltage_label;        // 电压标签
 static lv_obj_t* current_label;        // 电流标签
 static lv_obj_t* roll_label;           // 横滚角标签
@@ -219,28 +232,48 @@ void ui_telemetry_create(lv_obj_t* parent) {
     lv_slider_set_value(direction_slider, 500, LV_ANIM_OFF);
     lv_obj_add_event_cb(direction_slider, slider_event_handler, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // 右侧容器：遥测状态
+    // 右侧容器：ELRS链路统计信息
     lv_obj_t* right_container = lv_obj_create(control_row);
     lv_obj_set_width(right_container, lv_pct(48));
     lv_obj_set_height(right_container, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(right_container, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(right_container, 10, 0);
-    lv_obj_set_style_pad_gap(right_container, 8, 0);
+    lv_obj_set_style_pad_gap(right_container, 5, 0);
 
     // 右侧标题
     lv_obj_t* title2 = lv_label_create(right_container);
-    lv_label_set_text(title2, text->telemetry_status_label);
+    lv_label_set_text(title2, "Link Stats");
     set_telemetry_language_display(title2);
 
-    // 电压显示
-    voltage_label = lv_label_create(right_container);
-    lv_label_set_text(voltage_label, text->voltage_label);
-    set_telemetry_language_display(voltage_label);
+    // RSSI 1显示
+    rssi_1_label = lv_label_create(right_container);
+    lv_label_set_text(rssi_1_label, "RSSI1: -- dBm");
+    set_telemetry_language_display(rssi_1_label);
 
-    // 电流显示
-    current_label = lv_label_create(right_container);
-    lv_label_set_text(current_label, text->current_label);
-    set_telemetry_language_display(current_label);
+    // RSSI 2显示
+    rssi_2_label = lv_label_create(right_container);
+    lv_label_set_text(rssi_2_label, "RSSI2: -- dBm");
+    set_telemetry_language_display(rssi_2_label);
+
+    // LQ (Link Quality)显示
+    lq_label = lv_label_create(right_container);
+    lv_label_set_text(lq_label, "LQ: --%%");
+    set_telemetry_language_display(lq_label);
+
+    // SNR (Signal-to-Noise Ratio)显示
+    snr_label = lv_label_create(right_container);
+    lv_label_set_text(snr_label, "SNR: -- dB");
+    set_telemetry_language_display(snr_label);
+
+    // 天线选择显示
+    antenna_label = lv_label_create(right_container);
+    lv_label_set_text(antenna_label, "Ant: A");
+    set_telemetry_language_display(antenna_label);
+
+    // 模型匹配显示
+    model_match_label = lv_label_create(right_container);
+    lv_label_set_text(model_match_label, "Match: --");
+    set_telemetry_language_display(model_match_label);
 
     // 姿态显示区域
     lv_obj_t* panel2 = lv_obj_create(content_container);
@@ -273,6 +306,24 @@ void ui_telemetry_create(lv_obj_t* parent) {
     lv_label_set_text_fmt(yaw_label, "%s --", text->yaw_prefix);
     set_telemetry_language_display(yaw_label);
 
+    // 电压和电流显示
+    lv_obj_t* battery_row = lv_obj_create(panel2);
+    lv_obj_set_width(battery_row, lv_pct(100));
+    lv_obj_set_height(battery_row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(battery_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_all(battery_row, 0, 0);
+    lv_obj_set_style_pad_gap(battery_row, 10, 0);
+
+    // 电压显示
+    voltage_label = lv_label_create(battery_row);
+    lv_label_set_text(voltage_label, text->voltage_label);
+    set_telemetry_language_display(voltage_label);
+
+    // 电流显示
+    current_label = lv_label_create(battery_row);
+    lv_label_set_text(current_label, text->current_label);
+    set_telemetry_language_display(current_label);
+
     // GPS状态显示
     gps_label = lv_label_create(panel2);
     lv_label_set_text(gps_label, text->gps_disconnected);
@@ -282,6 +333,37 @@ void ui_telemetry_create(lv_obj_t* parent) {
     altitude_label = lv_label_create(panel2);
     lv_label_set_text(altitude_label, text->altitude_label);
     set_telemetry_language_display(altitude_label);
+
+    // 16个遥控通道显示区域
+    lv_obj_t* channels_panel = lv_obj_create(content_container);
+    lv_obj_set_width(channels_panel, lv_pct(100));
+    lv_obj_set_height(channels_panel, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(channels_panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(channels_panel, 10, 0);
+    lv_obj_set_style_pad_gap(channels_panel, 5, 0);
+
+    // 通道标题
+    lv_obj_t* channels_title = lv_label_create(channels_panel);
+    lv_label_set_text(channels_title, "Channels (CRSF)");
+    set_telemetry_language_display(channels_title);
+
+    // 创建通道显示行 (4个通道一行, 共4行)
+    for (int row = 0; row < 4; row++) {
+        lv_obj_t* channel_row = lv_obj_create(channels_panel);
+        lv_obj_set_width(channel_row, lv_pct(100));
+        lv_obj_set_height(channel_row, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(channel_row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_all(channel_row, 0, 0);
+        lv_obj_set_style_pad_gap(channel_row, 5, 0);
+
+        for (int col = 0; col < 4; col++) {
+            int ch_idx = row * 4 + col;
+            channel_labels[ch_idx] = lv_label_create(channel_row);
+            lv_label_set_text_fmt(channel_labels[ch_idx], "CH%d:--", ch_idx);
+            lv_obj_set_width(channel_labels[ch_idx], lv_pct(25));
+            set_telemetry_language_display(channel_labels[ch_idx]);
+        }
+    }
 
     // 扩展功能区域
     lv_obj_t* panel3 = lv_obj_create(content_container);
@@ -459,51 +541,78 @@ static void telemetry_data_update_callback(const telemetry_data_t* data) {
     if (data == NULL)
         return;
 
-    // 检查关键对象是否有效，如果不是则跳过更新
-    if (!voltage_label || !current_label || !altitude_label || !roll_label || !pitch_label || !yaw_label) {
-        return;
+    // 更新ELRS链路统计数据
+    if (rssi_1_label && lv_obj_is_valid(rssi_1_label)) {
+        int16_t rssi_1_dbm = telemetry_rssi_raw_to_dbm(data->uplink_rssi_1);
+        lv_label_set_text_fmt(rssi_1_label, "RSSI1: %d dBm", rssi_1_dbm);
     }
 
-    // 更新UI显示的遥测数据
-    if (lv_obj_is_valid(voltage_label)) {
-        int voltage_int = (int)(data->voltage);
-        int voltage_frac = (int)((data->voltage - voltage_int) * 100);
-        lv_label_set_text_fmt(voltage_label, "电压: %d.%02d V", voltage_int, voltage_frac);
+    if (rssi_2_label && lv_obj_is_valid(rssi_2_label)) {
+        int16_t rssi_2_dbm = telemetry_rssi_raw_to_dbm(data->uplink_rssi_2);
+        lv_label_set_text_fmt(rssi_2_label, "RSSI2: %d dBm", rssi_2_dbm);
     }
-    if (lv_obj_is_valid(current_label)) {
-        int current_int = (int)(data->current);
-        int current_frac = (int)((data->current - current_int) * 100);
-        lv_label_set_text_fmt(current_label, "电流: %d.%02d A", current_int, current_frac);
+
+    if (lq_label && lv_obj_is_valid(lq_label)) {
+        lv_label_set_text_fmt(lq_label, "LQ: %d%%", data->link_quality);
     }
-    if (lv_obj_is_valid(altitude_label)) {
-        int alt_int = (int)(data->altitude);
-        int alt_frac = (int)((data->altitude - alt_int) * 10);
-        lv_label_set_text_fmt(altitude_label, "高度: %d.%d m", alt_int, alt_frac);
+
+    if (snr_label && lv_obj_is_valid(snr_label)) {
+        lv_label_set_text_fmt(snr_label, "SNR: %d dB", (int)data->snr);
     }
-    // 更新姿态角
-    const telemetry_text_t* text = get_current_telemetry_text();
-    if (lv_obj_is_valid(roll_label)) {
-        int roll_int = (int)(data->roll);
-        int roll_frac = (int)((data->roll - roll_int) * 100);
-        lv_label_set_text_fmt(roll_label, "%s %d.%02d", text->roll_prefix, roll_int, roll_frac);
+
+    if (antenna_label && lv_obj_is_valid(antenna_label)) {
+        lv_label_set_text_fmt(antenna_label, "Ant: %c", data->antenna_select ? 'B' : 'A');
     }
-    if (lv_obj_is_valid(pitch_label)) {
-        int pitch_int = (int)(data->pitch);
-        int pitch_frac = (int)((data->pitch - pitch_int) * 100);
-        lv_label_set_text_fmt(pitch_label, "%s %d.%02d", text->pitch_prefix, pitch_int, pitch_frac);
+
+    if (model_match_label && lv_obj_is_valid(model_match_label)) {
+        lv_label_set_text(model_match_label, data->model_match ? "Match: OK" : "Match: --");
     }
-    if (lv_obj_is_valid(yaw_label)) {
-        int yaw_int = (int)(data->yaw);
-        int yaw_frac = (int)((data->yaw - yaw_int) * 100);
-        lv_label_set_text_fmt(yaw_label, "%s %d.%02d", text->yaw_prefix, yaw_int, yaw_frac);
+
+    // 更新16个遥控通道
+    if (data->channels_valid) {
+        for (int i = 0; i < 16; i++) {
+            if (channel_labels[i] && lv_obj_is_valid(channel_labels[i])) {
+                uint16_t channel_val = data->channels[i];
+                // CRSF值范围: 0-2047, 显示为百分比 (0-100%)
+                uint8_t percent = (channel_val * 100) / 2047;
+                lv_label_set_text_fmt(channel_labels[i], "CH%d:%d%%", i, percent);
+            }
+        }
     }
+
+    // 更新扩展遥测数据 (IMU, 电池等)
+    if (voltage_label && lv_obj_is_valid(voltage_label)) {
+        lv_label_set_text_fmt(voltage_label, "V: %.2f V", data->voltage);
+    }
+
+    if (current_label && lv_obj_is_valid(current_label)) {
+        lv_label_set_text_fmt(current_label, "I: %.2f A", data->current);
+    }
+
+    if (roll_label && lv_obj_is_valid(roll_label)) {
+        lv_label_set_text_fmt(roll_label, "R: %.2f°", data->roll);
+    }
+
+    if (pitch_label && lv_obj_is_valid(pitch_label)) {
+        lv_label_set_text_fmt(pitch_label, "P: %.2f°", data->pitch);
+    }
+
+    if (yaw_label && lv_obj_is_valid(yaw_label)) {
+        lv_label_set_text_fmt(yaw_label, "Y: %.2f°", data->yaw);
+    }
+
+    if (altitude_label && lv_obj_is_valid(altitude_label)) {
+        lv_label_set_text_fmt(altitude_label, "Alt: %.1f m", data->altitude);
+    }
+
+    // 更新GPS状态 (根据链路质量和信号强度推测)
     if (gps_label && lv_obj_is_valid(gps_label)) {
-        const telemetry_text_t* text = get_current_telemetry_text();
-        // 简单的GPS状态模拟
-        if (data->altitude > 0) {
-            lv_label_set_text(gps_label, text->gps_connected);
+        if (data->link_quality > 80) {
+            lv_label_set_text(gps_label, "GPS: OK");
+        } else if (data->link_quality > 50) {
+            lv_label_set_text(gps_label, "GPS: Search");
         } else {
-            lv_label_set_text(gps_label, text->gps_searching);
+            lv_label_set_text(gps_label, "GPS: Lost");
         }
     }
 }

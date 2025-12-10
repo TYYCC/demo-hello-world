@@ -10,6 +10,7 @@
 
 #include "esp_err.h"
 #include "telemetry_protocol.h"
+#include "telemetry_main.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -116,7 +117,7 @@ esp_err_t telemetry_data_converter_get_rc_channels(uint16_t *channels, uint8_t *
  * @param telemetry 输出遥测数据结构
  * @return ESP_OK表示成功
  */
-esp_err_t telemetry_data_converter_get_telemetry_data(telemetry_data_payload_t *telemetry);
+esp_err_t telemetry_data_converter_get_telemetry_data(telemetry_data_t *telemetry);
 
 /**
  * @brief 获取本地传感器原始数据
@@ -137,26 +138,49 @@ bool telemetry_data_converter_is_data_valid(void);
  * @return ESP_OK表示成功
  */
 esp_err_t telemetry_data_converter_get_device_status(uint8_t *status);
-
-// ==================== 扩展传感器API ====================
-
-/**
- * @brief 注册自定义传感器
- * @param sensor_id 传感器ID
- * @param read_func 传感器读取函数
- * @param user_data 用户自定义数据
- * @return ESP_OK表示成功
- */
-esp_err_t telemetry_data_converter_add_custom_sensor(sensor_id_t sensor_id, 
-                                                     sensor_read_func_t read_func, 
-                                                     void *user_data);
+                     
+// ==================== ELRS特定API ====================
 
 /**
- * @brief 移除自定义传感器
- * @param sensor_id 传感器ID
+ * @brief 更新ELRS链路统计数据
+ * @param rssi_1 天线1 RSSI (dBm + 120偏移)
+ * @param rssi_2 天线2 RSSI (dBm + 120偏移)
+ * @param link_quality 链路质量 (0-100%)
+ * @param snr 信噪比 (dB)
  * @return ESP_OK表示成功
  */
-esp_err_t telemetry_data_converter_remove_custom_sensor(sensor_id_t sensor_id);
+esp_err_t telemetry_data_converter_update_link_stats(uint8_t rssi_1, uint8_t rssi_2,
+                                                     uint8_t link_quality, int8_t snr);
+
+/**
+ * @brief 更新ELRS遥控通道数据 (16个CRSF格式通道)
+ * @param channels 16个通道数据数组 (0-2047)
+ * @return ESP_OK表示成功
+ */
+esp_err_t telemetry_data_converter_update_channels(const uint16_t *channels);
+
+/**
+ * @brief 更新ELRS天线和模型匹配信息
+ * @param antenna 当前天线 (0或1)
+ * @param model_match 模型是否匹配
+ * @param diversity_available 双天线是否可用
+ * @return ESP_OK表示成功
+ */
+esp_err_t telemetry_data_converter_update_antenna_info(uint8_t antenna, bool model_match, bool diversity_available);
+
+/**
+ * @brief 获取当前ELRS链路统计数据
+ * @param stats 输出链路统计数据
+ * @return ESP_OK表示成功
+ */
+esp_err_t telemetry_data_converter_get_link_stats(elrs_link_stats_t *stats);
+
+/**
+ * @brief 获取当前ELRS遥控通道数据
+ * @param channels 输出16个通道数据 (0-2047)
+ * @return ESP_OK表示成功
+ */
+esp_err_t telemetry_data_converter_get_channels(uint16_t *channels);
 
 #ifdef __cplusplus
 }
