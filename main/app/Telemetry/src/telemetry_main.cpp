@@ -8,9 +8,11 @@
 #include "lvgl.h"
 #include <stdlib.h>
 #include <string.h>
-#include "OTA.h"
+#include "common.h"
 
-#define CRSF_CHANNEL_VALUE_MID 992
+extern "C" void elrs_set_channel(uint8_t channel, uint16_t value);
+extern "C" void elrs_set_channels(const uint16_t *values, uint8_t count);
+extern "C" uint16_t elrs_get_channel(uint8_t channel);
 
 static const char* TAG = "telemetry_main";
 
@@ -20,16 +22,9 @@ static TaskHandle_t telemetry_task_handle = NULL;
 static telemetry_data_callback_t data_callback = NULL;
 static telemetry_data_t current_data = {0};
 static SemaphoreHandle_t data_mutex = NULL;
-static QueueHandle_t control_queue = NULL;
-static bool g_sender_active = false;  // 发送器激活状态
 
 // 内部函数声明
 static void telemetry_data_task(void* pvParameters);
-
-typedef struct {
-    int32_t throttle;
-    int32_t direction;
-} control_command_t;
 
 int telemetry_service_init(void) {
     if (service_status != TELEMETRY_STATUS_STOPPED) {
@@ -43,17 +38,6 @@ int telemetry_service_init(void) {
         ESP_LOGE(TAG, "Failed to create data mutex");
         return -1;
     }
-
-    // 创建控制命令队列
-    control_queue = xQueueCreate(10, sizeof(control_command_t));
-    if (control_queue == NULL) {
-        ESP_LOGE(TAG, "Failed to create control queue");
-        vSemaphoreDelete(data_mutex);
-        return -1;
-    }
-
-    // 初始化发送器
-    g_sender_active = false;
 
     ESP_LOGI(TAG, "Telemetry service initialized");
     return 0;
@@ -104,9 +88,6 @@ int telemetry_service_stop(void) {
 
     service_status = TELEMETRY_STATUS_STOPPING;
 
-    // 停止发送器
-    g_sender_active = false;
-
     // 等待任务自然退出
     int wait_count = 0;
     while (telemetry_task_handle != NULL && wait_count < 50) {
@@ -118,11 +99,6 @@ int telemetry_service_stop(void) {
     if (telemetry_task_handle != NULL && eTaskGetState(telemetry_task_handle) != eDeleted) {
         vTaskDelete(telemetry_task_handle);
         telemetry_task_handle = NULL;
-    }
-
-    // 清空队列
-    if (control_queue) {
-        xQueueReset(control_queue);
     }
 
     service_status = TELEMETRY_STATUS_STOPPED;
@@ -140,26 +116,42 @@ int telemetry_service_stop(void) {
 telemetry_status_t telemetry_service_get_status(void) { return service_status; }
 
 /**
- * @brief 发送控制命令
+ * @brief 发送UI控制命令到ELRS
+ * 
+ * 将UI滑动条的控制值转换为CRSF通道值并通过ELRS API发送
  *
- * @param throttle 油门
- * @param direction 方向
+ * @param throttle 油门值 (0-1000)
+ * @param direction 方向值 (0-1000)
  * @return 0 成功，-1 失败
  */
 int telemetry_service_send_control(int32_t throttle, int32_t direction) {
     if (service_status != TELEMETRY_STATUS_RUNNING) {
-        ESP_LOGW(TAG, "Service not running");
+        ESP_LOGW(TAG, "Service not running, cannot send control");
         return -1;
     }
 
-    control_command_t cmd = {.throttle = throttle, .direction = direction};
+    // 限制输入范围
+    if (throttle < 0) throttle = 0;
+    if (throttle > 1000) throttle = 1000;
+    if (direction < 0) direction = 0;
+    if (direction > 1000) direction = 1000;
 
-    if (xQueueSend(control_queue, &cmd, pdMS_TO_TICKS(100)) != pdPASS) {
-        ESP_LOGW(TAG, "Failed to send control command");
-        return -1;
-    }
+    // 将UI值(0-1000)转换为CRSF值(172-1811)
+    // 公式: crsf_value = 172 + (ui_value * 1639) / 1000
+    uint16_t ch0 = 172 + (throttle * 1639) / 1000;   // CH0: 油门
+    uint16_t ch1 = 172 + (direction * 1639) / 1000;  // CH1: 方向
 
-    ESP_LOGI(TAG, "Control command sent: throttle=%d, direction=%d", throttle, direction);
+    // 限制范围在172-1811
+    if (ch0 < 172) ch0 = 172;
+    if (ch0 > 1811) ch0 = 1811;
+    if (ch1 < 172) ch1 = 172;
+    if (ch1 > 1811) ch1 = 1811;
+
+    elrs_set_channel(0, ch0);
+    elrs_set_channel(1, ch1);
+
+    ESP_LOGD(TAG, "UI Control sent: throttle=%d->%u, direction=%d->%u",
+             throttle, ch0, direction, ch1);
     return 0;
 }
 
@@ -216,88 +208,28 @@ void telemetry_service_deinit(void) {
         data_mutex = NULL;
     }
 
-    if (control_queue) {
-        vQueueDelete(control_queue);
-        control_queue = NULL;
-    }
-
     ESP_LOGI(TAG, "Telemetry service deinitialized");
 }
 
 /**
  * @brief 数据处理任务
- *
  * @param pvParameters 参数
  */
 static void telemetry_data_task(void* pvParameters) {
-    control_command_t cmd;
     uint32_t test_data_timer = 0;
 
     ESP_LOGI(TAG, "Data task started");
 
     while (service_status == TELEMETRY_STATUS_RUNNING) {
-        // 0. 更新传感器数据 (移除，使用ELRS定义)
-        // if (telemetry_data_converter_update() != ESP_OK) {
-        //     ESP_LOGW(TAG, "Failed to update sensor data");
-        // }
-
-        // 0.5 定期注入测试ELRS数据 (每500ms) - 用于演示UI
+        // 定期注入测试ELRS数据 (每500ms) - 用于演示UI
+        // 实际运行时，接收器会通过 telemetry_service_update_data() 提供真实数据
         test_data_timer++;
         if (test_data_timer >= 25) {  // 25 * 20ms = 500ms
             telemetry_service_inject_test_data();
             test_data_timer = 0;
         }
 
-        // 1. 处理来自UI的控制命令 (使用非阻塞接收)
-        // 注：控制命令现在通过ELRS协议的RC通道传输
-        if (xQueueReceive(control_queue, &cmd, 0) == pdPASS) {
-            if (xSemaphoreTake(data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                // 控制数据现在由ELRS RC通道处理
-                // TODO: 将throttle/direction映射到RC通道数据
-                xSemaphoreGive(data_mutex);
-            }
-        }
-
-        // 2. 处理发送器逻辑 (发送心跳和遥控数据)
-        // 打包RC数据到ELRS OTA包 (暂时移除，使用ELRS定义)
-        // {
-        //     // 获取遥控通道数据
-        //     uint16_t channels[16];
-        //     uint8_t channel_count = 0;
-
-        //     if (telemetry_data_converter_get_rc_channels(channels, &channel_count) == ESP_OK) {
-        //         // 准备通道数据为ELRS库格式 (uint32_t数组)
-        //         uint32_t channelData[16];
-        //         for (int i = 0; i < 16; i++) {
-        //             if (i < channel_count) {
-        //                 channelData[i] = channels[i];  // CRSF格式 (0-2047)
-        //             } else {
-        //                 channelData[i] = CRSF_CHANNEL_VALUE_MID;  // 992 (中位值)
-        //             }
-        //         }
-
-        //         // 获取ELRS的OTA包缓冲区 (全局变量，由ELRS库提供)
-        //         extern OTA_Packet_s otaPacket;
-                
-        //         // 调用ELRS库的打包函数 - 直接填充otaPacket
-        //         if (OtaPackChannelData != nullptr) {
-        //             OtaPackChannelData(&otaPacket, channelData, false);
-                    
-        //             // 调用ELRS库的CRC生成函数
-        //             if (OtaGeneratePacketCrc != nullptr) {
-        //                 OtaGeneratePacketCrc(&otaPacket);
-        //             }
-                    
-        //             ESP_LOGD(TAG, "RC data packed to ELRS OTA packet");
-        //         } else {
-        //             ESP_LOGW(TAG, "ELRS OTA functions not initialized");
-        //         }
-        //     } else {
-        //         ESP_LOGW(TAG, "Failed to get RC channel data");
-        //     }
-        // }
-
-        // 将任务频率提高到50Hz，以获得更流畅的控制
+        // 任务循环频率: 50Hz (20ms)
         vTaskDelay(pdMS_TO_TICKS(20));
     }
  

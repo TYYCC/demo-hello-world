@@ -69,6 +69,7 @@ else()
 
         # app中遥测相关的文件
         "app/Telemetry/src/telemetry_main.cpp"
+        "app/Telemetry/src/telemetry_data_converter.c"
         
         # 字体相关文件
         "fonts/font_init.c"
