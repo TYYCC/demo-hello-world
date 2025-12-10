@@ -123,6 +123,7 @@ static lv_obj_t* g_wifi_switch_obj;
 static lv_timer_t* g_update_timer;
 static bool g_wifi_ui_initialized = false;
 static uint32_t g_last_scan_version = UINT32_MAX;
+static uint32_t g_last_wifi_list_version = UINT32_MAX;  // 追踪WiFi列表版本
 static wifi_manager_state_t g_last_wifi_state = WIFI_STATE_DISABLED;
 static int32_t g_last_saved_network_count = -1;
 static uint32_t g_last_disconnect_notified_seq = 0;
@@ -149,6 +150,11 @@ typedef struct {
 typedef struct {
     char ssid[33];
 } wifi_connect_request_t;
+
+typedef struct {
+    char ssid[33];
+    bool from_saved_list;  // 标记是否来自已保存列表
+} wifi_delete_request_t;
 
 static const char* get_reason_text(wifi_err_reason_t reason, const wifi_text_t* text) {
     switch (reason) {
@@ -291,19 +297,18 @@ static void rebuild_available_network_list(void) {
         theme_apply_to_label(name_label, false);
         lv_obj_set_flex_grow(name_label, 1);
 
-        char detail_text[96];
-        const char* security_prefix = (results[i].authmode == WIFI_AUTH_OPEN) ? "" : "[Sec] ";
+        char detail_text[64];
         if (data->is_saved) {
-            snprintf(detail_text, sizeof(detail_text), "%s%s %d dBm [%s]", security_prefix,
-                     LV_SYMBOL_WIFI, (int)results[i].rssi, text->saved_tag);
+            snprintf(detail_text, sizeof(detail_text), "[%s]", text->saved_tag);
         } else {
-            snprintf(detail_text, sizeof(detail_text), "%s%s %d dBm", security_prefix,
-                     LV_SYMBOL_WIFI, (int)results[i].rssi);
+            detail_text[0] = '\0';
         }
 
-        lv_obj_t* detail_label = lv_label_create(item_btn);
-        lv_label_set_text(detail_label, detail_text);
-        theme_apply_to_label(detail_label, false);
+        if (detail_text[0] != '\0') {
+            lv_obj_t* detail_label = lv_label_create(item_btn);
+            lv_label_set_text(detail_label, detail_text);
+            theme_apply_to_label(detail_label, false);
+        }
     }
 }
 
@@ -364,8 +369,12 @@ static void refresh_saved_network_dropdown_if_needed(void) {
         return;
     }
 
+    // 使用新的列表版本号来检测更新
+    uint32_t current_list_version = wifi_manager_get_wifi_list_version();
     int32_t total_count = wifi_manager_get_wifi_list_size();
-    if (total_count != g_last_saved_network_count) {
+    
+    if (current_list_version != g_last_wifi_list_version || total_count != g_last_saved_network_count) {
+        g_last_wifi_list_version = current_list_version;
         rebuild_saved_network_dropdown();
     }
 }
@@ -409,6 +418,8 @@ static void rebuild_saved_network_dropdown(void) {
 
     lv_dropdown_set_options(g_saved_dropdown, options);
     lv_mem_free(options);
+    
+    ESP_LOGI(TAG, "Saved network dropdown rebuilt with %d entries", count);
 }
 
 static void trigger_wifi_scan(bool show_error) {
@@ -435,6 +446,7 @@ static void trigger_wifi_scan(bool show_error) {
 
 static void wifi_manager_ui_event_cb(void) {
     g_last_scan_version = UINT32_MAX;
+    g_last_wifi_list_version = UINT32_MAX;  // 重置列表版本号
     g_last_saved_network_count = -1;
     g_last_wifi_state = wifi_manager_get_info().state;
     g_last_disconnect_notified_seq = wifi_manager_get_disconnect_sequence();
@@ -503,6 +515,66 @@ static void wifi_password_keypad_delete_cb(lv_event_t* e) {
 }
 
 /**
+ * @brief 确认删除WiFi的回调
+ */
+static void confirm_delete_wifi_cb(lv_event_t* e) {
+    lv_obj_t* btn = lv_event_get_target(e);
+    wifi_delete_request_t* request = (wifi_delete_request_t*)lv_event_get_user_data(e);
+    
+    if (!request) {
+        return;
+    }
+    
+    esp_err_t err = wifi_manager_remove_wifi_from_list(request->ssid);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "WiFi removed: %s", request->ssid);
+        // 触发列表更新
+        g_last_wifi_list_version = UINT32_MAX;
+    } else {
+        ESP_LOGW(TAG, "Failed to remove WiFi: %s", request->ssid);
+    }
+    
+    lv_mem_free(request);
+}
+
+/**
+ * @brief 显示删除WiFi的确认对话框
+ */
+static void show_delete_wifi_confirm(const char* ssid) {
+    if (!ssid || ssid[0] == '\0') {
+        return;
+    }
+    
+    const wifi_text_t* text = get_wifi_text();
+    
+    char msg[128];
+    snprintf(msg, sizeof(msg), "Delete WiFi network '%s'?", ssid);
+    
+    lv_obj_t* buttons[] = {
+        lv_btn_create(lv_layer_top()),
+        lv_btn_create(lv_layer_top()),
+        NULL
+    };
+    
+    lv_obj_t* msgbox = lv_msgbox_create(lv_scr_act(), "Delete Network", msg, 
+                                        (const char*[]){"Delete", "Cancel", ""}, false);
+    
+    // 为删除按钮设置回调
+    lv_obj_t* delete_btn = lv_msgbox_get_btns(msgbox);
+    if (delete_btn) {
+        wifi_delete_request_t* request = lv_mem_alloc(sizeof(wifi_delete_request_t));
+        if (request) {
+            strlcpy(request->ssid, ssid, sizeof(request->ssid));
+            request->from_saved_list = true;
+            lv_obj_add_event_cb(delete_btn, confirm_delete_wifi_cb, LV_EVENT_CLICKED, request);
+        }
+    }
+    
+    lv_obj_center(msgbox);
+    set_language_display(msgbox);
+}
+
+/**
  * @brief UI更新定时器的回调
  * @param timer
  */
@@ -533,6 +605,7 @@ static void ui_wifi_settings_cleanup(lv_event_t* e) {
     g_saved_dropdown = NULL;
     g_wifi_switch_obj = NULL;
     g_last_scan_version = UINT32_MAX;
+    g_last_wifi_list_version = UINT32_MAX;  // 重置列表版本号
     g_last_saved_network_count = -1;
     g_last_wifi_state = WIFI_STATE_DISABLED;
     g_last_disconnect_notified_seq = 0;
@@ -792,6 +865,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     theme_apply_to_button(g_saved_dropdown, false);
     lv_obj_add_event_cb(g_saved_dropdown, wifi_dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     g_last_saved_network_count = -1;
+    g_last_wifi_list_version = UINT32_MAX;  // 初始化列表版本号
     rebuild_saved_network_dropdown();
 
     // --- 4. WiFi信息显示 ---
@@ -842,6 +916,7 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
     g_last_wifi_state = current_info.state;
     g_last_disconnect_notified_seq = wifi_manager_get_disconnect_sequence();
     g_last_scan_version = UINT32_MAX;
+    g_last_wifi_list_version = UINT32_MAX;  // 初始化列表版本号
     update_scan_section();
     if (current_info.state != WIFI_STATE_DISABLED) {
         trigger_wifi_scan(false);
@@ -856,9 +931,13 @@ void ui_wifi_settings_create(lv_obj_t* parent) {
 
 static void wifi_dropdown_event_cb(lv_event_t* e) {
     lv_obj_t* dropdown = lv_event_get_target(e);
-    if (lv_dropdown_get_option_cnt(dropdown) == 0) {
-        return;
+    lv_event_code_t code = lv_event_get_code(e);
+    
+    if (code == LV_EVENT_VALUE_CHANGED) {
+        if (lv_dropdown_get_option_cnt(dropdown) == 0) {
+            return;
+        }
+        uint16_t selected_index = lv_dropdown_get_selected(dropdown);
+        wifi_manager_connect_to_index(selected_index);
     }
-    uint16_t selected_index = lv_dropdown_get_selected(dropdown);
-    wifi_manager_connect_to_index(selected_index);
 }

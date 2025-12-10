@@ -60,13 +60,9 @@ typedef struct {
     char password[64];
 } wifi_config_entry_t;
 
-static wifi_config_entry_t wifi_list[MAX_WIFI_LIST_SIZE] = {
-    {"tidy", "22989822"},
-    {"Sysware-AP", "syswareonline.com"},
-    {"Xiaomi13", "22989822"},
-    {"TiydC", "22989822"},
-};
-static int32_t wifi_list_size = 4;
+static wifi_config_entry_t wifi_list[MAX_WIFI_LIST_SIZE] = {0};
+static int32_t wifi_list_size = 0;
+static uint32_t wifi_list_version = 0;  // 列表版本号，用于追踪更新
 
 // 前向声明
 static bool load_wifi_config_from_nvs(char* ssid, size_t ssid_len, char* password,
@@ -216,26 +212,35 @@ esp_err_t wifi_manager_init(wifi_manager_event_cb_t event_cb) {
 esp_err_t wifi_manager_start(void) {
     s_wifi_event_group = xEventGroupCreate();
 
+    // 从NVS加载保存的WiFi列表
     load_wifi_list_from_nvs();
+    ESP_LOGI(TAG, "WiFi list loaded: %d entries", wifi_list_size);
 
     wifi_config_t wifi_config = {0};
+    bool config_loaded = false;
 
-    // 优先使用上次成功连接的WiFi
+    // 优先使用上次成功连接的WiFi配置
     if (load_wifi_config_from_nvs((char*)wifi_config.sta.ssid, sizeof(wifi_config.sta.ssid),
                                   (char*)wifi_config.sta.password,
                                   sizeof(wifi_config.sta.password))) {
         ESP_LOGI(TAG, "Attempting to connect to last known WiFi: %s", wifi_config.sta.ssid);
-    } else if (wifi_list_size > 0) {
-        // 否则，尝试列表中的第一个WiFi
-        strncpy((char*)wifi_config.sta.ssid, wifi_list[0].ssid, sizeof(wifi_config.sta.ssid));
+        config_loaded = true;
+    } 
+    // 如果没有保存的配置，但列表中有WiFi，则尝试第一个
+    else if (wifi_list_size > 0) {
+        strncpy((char*)wifi_config.sta.ssid, wifi_list[0].ssid, sizeof(wifi_config.sta.ssid) - 1);
         strncpy((char*)wifi_config.sta.password, wifi_list[0].password,
-                sizeof(wifi_config.sta.password));
+                sizeof(wifi_config.sta.password) - 1);
         ESP_LOGI(TAG, "Attempting to connect to WiFi from list: %s", wifi_config.sta.ssid);
-    } else {
-        // 如果都没有，则使用默认配置
-        ESP_LOGW(TAG, "No saved WiFi configuration found, using default.");
-        strncpy((char*)wifi_config.sta.ssid, "TidyC", sizeof(wifi_config.sta.ssid));
-        strncpy((char*)wifi_config.sta.password, "22989822", sizeof(wifi_config.sta.password));
+        config_loaded = true;
+    } 
+    // 如果列表为空，提示用户需要扫描和添加
+    else {
+        ESP_LOGW(TAG, "No saved WiFi found. Please scan and connect to a WiFi network.");
+        strcpy((char*)wifi_config.sta.ssid, "");
+        strcpy((char*)wifi_config.sta.password, "");
+        // 仍然启动WiFi，但不连接任何网络
+        config_loaded = false;
     }
 
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK;
@@ -244,26 +249,25 @@ esp_err_t wifi_manager_start(void) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    // 尝试设置 STA 带宽为 HT40，如失败则回退 HT20（只在启动时尝试一次，避免频繁切带宽影响稳定性）
+    // 尝试设置 STA 带宽为 HT40，如失败则回退 HT20
     esp_err_t bandwidth_ret = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT40);
     if (bandwidth_ret != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to set WiFi bandwidth to HT40, trying HT20: %s", esp_err_to_name(bandwidth_ret));
+        ESP_LOGW(TAG, "Failed to set WiFi bandwidth to HT40, trying HT20: %s", 
+                esp_err_to_name(bandwidth_ret));
         bandwidth_ret = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
         if (bandwidth_ret != ESP_OK) {
-            ESP_LOGW(TAG, "Failed to set WiFi bandwidth to HT20: %s", esp_err_to_name(bandwidth_ret));
+            ESP_LOGW(TAG, "Failed to set WiFi bandwidth to HT20: %s", 
+                    esp_err_to_name(bandwidth_ret));
         }
     }
 
-    // WiFi 启动后设置发射功率（使用 dBm 语义，避免 quarter-dBm 误用导致功率过低）
+    // 设置发射功率
     esp_err_t power_ret = wifi_manager_set_power(20); // 20 dBm
     if (power_ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set WiFi power: %s", esp_err_to_name(power_ret));
     }
-    
-    // 启动WiFi带宽检查定时器（为提升连接稳定性，先禁用定时强制切换带宽）
-    // start_wifi_bandwidth_check_timer();
 
-    ESP_LOGI(TAG, "wifi_manager_start finished, connection is in progress...");
+    ESP_LOGI(TAG, "wifi_manager_start finished");
     return ESP_OK;
 }
 
@@ -392,6 +396,42 @@ const char* wifi_manager_get_saved_password(const char* ssid) {
     return find_wifi_password(ssid);
 }
 
+uint32_t wifi_manager_get_wifi_list_version(void) {
+    return wifi_list_version;
+}
+
+esp_err_t wifi_manager_remove_wifi_from_list(const char* ssid) {
+    if (ssid == NULL || ssid[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    for (int32_t i = 0; i < wifi_list_size; i++) {
+        if (strcmp(wifi_list[i].ssid, ssid) == 0) {
+            // 将后面的项目移到前面，覆盖当前项
+            for (int32_t j = i; j < wifi_list_size - 1; j++) {
+                memcpy(&wifi_list[j], &wifi_list[j + 1], sizeof(wifi_config_entry_t));
+            }
+            wifi_list_size--;
+            wifi_list_version++;
+            save_wifi_list_to_nvs();
+            ESP_LOGI(TAG, "WiFi removed from list: %s", ssid);
+            return ESP_OK;
+        }
+    }
+    
+    ESP_LOGW(TAG, "WiFi not found in list: %s", ssid);
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t wifi_manager_clear_wifi_list(void) {
+    wifi_list_size = 0;
+    wifi_list_version++;
+    memset(wifi_list, 0, sizeof(wifi_list));
+    save_wifi_list_to_nvs();
+    ESP_LOGI(TAG, "WiFi list cleared");
+    return ESP_OK;
+}
+
 esp_err_t wifi_manager_connect_to_index(int32_t index) {
     if (index < 0 || index >= wifi_list_size) {
         return ESP_ERR_INVALID_ARG;
@@ -494,16 +534,24 @@ static bool load_wifi_config_from_nvs(char* ssid, size_t ssid_len, char* passwor
     nvs_handle_t nvs_handle;
     esp_err_t err = nvs_open(WIFI_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
     if (err == ESP_OK) {
-        err = nvs_get_str(nvs_handle, WIFI_NVS_KEY_SSID, ssid, &ssid_len);
+        size_t actual_ssid_len = ssid_len;
+        size_t actual_password_len = password_len;
+        err = nvs_get_str(nvs_handle, WIFI_NVS_KEY_SSID, ssid, &actual_ssid_len);
         if (err == ESP_OK) {
-            err = nvs_get_str(nvs_handle, WIFI_NVS_KEY_PASSWORD, password, &password_len);
+            err = nvs_get_str(nvs_handle, WIFI_NVS_KEY_PASSWORD, password, &actual_password_len);
             if (err == ESP_OK) {
                 nvs_close(nvs_handle);
-                ESP_LOGI(TAG, "WiFi config loaded from NVS");
+                ESP_LOGI(TAG, "WiFi config loaded from NVS: ssid=%s, password_len=%zu", ssid, actual_password_len);
                 return true;
+            } else {
+                ESP_LOGW(TAG, "Failed to get password from NVS: %s", esp_err_to_name(err));
             }
+        } else {
+            ESP_LOGW(TAG, "Failed to get SSID from NVS: %s", esp_err_to_name(err));
         }
         nvs_close(nvs_handle);
+    } else {
+        ESP_LOGW(TAG, "Failed to open NVS: %s", esp_err_to_name(err));
     }
     ESP_LOGW(TAG, "No WiFi config found in NVS");
     return false;
@@ -513,11 +561,37 @@ static void save_wifi_list_to_nvs() {
     nvs_handle_t nvs_handle;
     esp_err_t err = nvs_open(WIFI_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
     if (err == ESP_OK) {
-        nvs_set_blob(nvs_handle, "wifi_list", wifi_list, sizeof(wifi_list));
-        nvs_set_i32(nvs_handle, "wifi_list_size", wifi_list_size);
-        nvs_commit(nvs_handle);
+        // 保存整个WiFi列表到NVS
+        err = nvs_set_blob(nvs_handle, "wifi_list", wifi_list, 
+                          (size_t)wifi_list_size * sizeof(wifi_config_entry_t));
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to set WiFi list blob: %s", esp_err_to_name(err));
+            nvs_close(nvs_handle);
+            return;
+        }
+        
+        // 保存列表大小
+        err = nvs_set_i32(nvs_handle, "wifi_list_size", wifi_list_size);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to set WiFi list size: %s", esp_err_to_name(err));
+            nvs_close(nvs_handle);
+            return;
+        }
+        
+        // 保存列表版本号
+        err = nvs_set_u32(nvs_handle, "wifi_list_ver", wifi_list_version);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to set WiFi list version: %s", esp_err_to_name(err));
+        }
+        
+        err = nvs_commit(nvs_handle);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "WiFi list saved to NVS: %d entries (version: %u)", 
+                    wifi_list_size, wifi_list_version);
+        } else {
+            ESP_LOGE(TAG, "Failed to commit NVS: %s", esp_err_to_name(err));
+        }
         nvs_close(nvs_handle);
-        ESP_LOGI(TAG, "WiFi list saved to NVS");
     } else {
         ESP_LOGE(TAG, "Failed to open NVS for saving WiFi list: %s", esp_err_to_name(err));
     }
@@ -526,54 +600,123 @@ static void save_wifi_list_to_nvs() {
 static void load_wifi_list_from_nvs() {
     nvs_handle_t nvs_handle;
     esp_err_t err = nvs_open(WIFI_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
+    
+    // 重置列表
+    wifi_list_size = 0;
+    wifi_list_version = 0;
+    memset(wifi_list, 0, sizeof(wifi_list));
+    
     if (err == ESP_OK) {
-        size_t required_size = sizeof(wifi_list);
-        err = nvs_get_blob(nvs_handle, "wifi_list", wifi_list, &required_size);
-        if (err == ESP_OK) {
-            nvs_get_i32(nvs_handle, "wifi_list_size", &wifi_list_size);
-            ESP_LOGI(TAG, "WiFi list loaded from NVS");
+        // 获取保存的列表大小
+        int32_t saved_size = 0;
+        esp_err_t size_err = nvs_get_i32(nvs_handle, "wifi_list_size", &saved_size);
+        
+        if (size_err == ESP_OK && saved_size > 0 && saved_size <= MAX_WIFI_LIST_SIZE) {
+            // 获取列表版本号
+            uint32_t saved_version = 0;
+            nvs_get_u32(nvs_handle, "wifi_list_ver", &saved_version);
+            
+            // 加载WiFi列表数据
+            size_t required_size = (size_t)saved_size * sizeof(wifi_config_entry_t);
+            err = nvs_get_blob(nvs_handle, "wifi_list", wifi_list, &required_size);
+            
+            if (err == ESP_OK) {
+                wifi_list_size = saved_size;
+                wifi_list_version = saved_version;
+                ESP_LOGI(TAG, "WiFi list loaded from NVS: %d entries (version: %u)", 
+                        wifi_list_size, wifi_list_version);
+                
+                // 打印已保存的WiFi列表
+                for (int32_t i = 0; i < wifi_list_size; i++) {
+                    ESP_LOGI(TAG, "  [%d] SSID: %s (pwd_len: %zu)", 
+                            i, wifi_list[i].ssid, strlen(wifi_list[i].password));
+                }
+            } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+                ESP_LOGW(TAG, "WiFi list blob not found in NVS");
+                wifi_list_size = 0;
+            } else {
+                ESP_LOGW(TAG, "Failed to read WiFi list from NVS: %s", esp_err_to_name(err));
+                wifi_list_size = 0;
+            }
+        } else if (size_err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "No WiFi list found in NVS, starting with empty list");
+            wifi_list_size = 0;
         } else {
-            ESP_LOGW(TAG, "No WiFi list found in NVS");
+            ESP_LOGW(TAG, "Invalid or missing wifi_list_size in NVS, starting with empty list");
+            wifi_list_size = 0;
         }
+        
         nvs_close(nvs_handle);
     } else {
         ESP_LOGE(TAG, "Failed to open NVS for loading WiFi list: %s", esp_err_to_name(err));
+        wifi_list_size = 0;
     }
 }
 
 static void add_wifi_to_list(const char* ssid, const char* password) {
     if (ssid == NULL || ssid[0] == '\0') {
+        ESP_LOGW(TAG, "Cannot add empty SSID to list");
         return;
     }
 
+    // 检查是否已存在
     for (int32_t i = 0; i < wifi_list_size; i++) {
         if (strcmp(wifi_list[i].ssid, ssid) == 0) {
+            // WiFi已存在，更新密码
             if (password) {
-                strlcpy(wifi_list[i].password, password, sizeof(wifi_list[i].password));
+                size_t pwd_len = strlen(password);
+                if (pwd_len > sizeof(wifi_list[i].password) - 1) {
+                    ESP_LOGW(TAG, "Password too long, truncating: %s", ssid);
+                    strlcpy(wifi_list[i].password, password, sizeof(wifi_list[i].password));
+                } else {
+                    strlcpy(wifi_list[i].password, password, sizeof(wifi_list[i].password));
+                }
             } else {
                 wifi_list[i].password[0] = '\0';
             }
+            
+            // 更新版本号并保存
+            wifi_list_version++;
             save_wifi_list_to_nvs();
-            ESP_LOGI(TAG, "WiFi updated in list: %s", ssid);
+            ESP_LOGI(TAG, "WiFi entry updated in list: %s", ssid);
             return;
         }
     }
 
+    // 检查列表是否已满
     if (wifi_list_size >= MAX_WIFI_LIST_SIZE) {
-        ESP_LOGW(TAG, "WiFi list is full, cannot add: %s", ssid);
+        ESP_LOGW(TAG, "WiFi list is full (%d), cannot add: %s", MAX_WIFI_LIST_SIZE, ssid);
         return;
     }
 
-    strlcpy(wifi_list[wifi_list_size].ssid, ssid, sizeof(wifi_list[wifi_list_size].ssid));
+    // 添加新条目
+    size_t ssid_len = strlen(ssid);
+    if (ssid_len > sizeof(wifi_list[wifi_list_size].ssid) - 1) {
+        ESP_LOGW(TAG, "SSID too long, truncating: %s", ssid);
+        strlcpy(wifi_list[wifi_list_size].ssid, ssid, sizeof(wifi_list[wifi_list_size].ssid));
+    } else {
+        strlcpy(wifi_list[wifi_list_size].ssid, ssid, sizeof(wifi_list[wifi_list_size].ssid));
+    }
+    
     if (password) {
-        strlcpy(wifi_list[wifi_list_size].password, password,
-                sizeof(wifi_list[wifi_list_size].password));
+        size_t pwd_len = strlen(password);
+        if (pwd_len > sizeof(wifi_list[wifi_list_size].password) - 1) {
+            ESP_LOGW(TAG, "Password too long for %s, truncating", ssid);
+            strlcpy(wifi_list[wifi_list_size].password, password, 
+                   sizeof(wifi_list[wifi_list_size].password));
+        } else {
+            strlcpy(wifi_list[wifi_list_size].password, password,
+                   sizeof(wifi_list[wifi_list_size].password));
+        }
     } else {
         wifi_list[wifi_list_size].password[0] = '\0';
     }
+    
     wifi_list_size++;
+    wifi_list_version++;
     save_wifi_list_to_nvs();
-    ESP_LOGI(TAG, "WiFi added to list: %s", ssid);
+    
+    ESP_LOGI(TAG, "WiFi added to list [%d]: %s", wifi_list_size - 1, ssid);
 }
 
 static const char* find_wifi_password(const char* ssid) {

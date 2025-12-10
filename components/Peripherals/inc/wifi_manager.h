@@ -178,6 +178,25 @@ wifi_err_reason_t wifi_manager_get_last_disconnect_reason(void);
  */
 uint32_t wifi_manager_get_disconnect_sequence(void);
 
+/**
+ * @brief 获取WiFi列表版本号，用于缓存管理
+ * @return uint32_t 列表版本号，每次列表更新时增加
+ */
+uint32_t wifi_manager_get_wifi_list_version(void);
+
+/**
+ * @brief 从列表中移除指定SSID的WiFi
+ * @param ssid 要移除的WiFi的SSID
+ * @return esp_err_t ESP_OK表示成功, ESP_ERR_NOT_FOUND表示未找到
+ */
+esp_err_t wifi_manager_remove_wifi_from_list(const char* ssid);
+
+/**
+ * @brief 清空整个WiFi列表
+ * @return esp_err_t
+ */
+esp_err_t wifi_manager_clear_wifi_list(void);
+
 #ifdef __cplusplus
 }
 #endif
