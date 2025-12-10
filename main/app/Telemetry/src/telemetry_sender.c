@@ -2,18 +2,16 @@
  * @file telemetry.sender.c
  * @brief 处理发送控制帧相关的函数
  * @author TidyCraze
- * @date 2025-08-15
+ * @date 2025-12-10
  * @warning 请不要随意调换头文件顺序
  */
-#include "telemetry_sender.h"
 
+#include "telemetry_sender.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
 #include "lwip/sockets.h"
 #include <errno.h>
-
 #include "telemetry_data_converter.h"
 #include "telemetry_main.h"
 #include "telemetry_protocol.h"
@@ -77,21 +75,12 @@ void telemetry_sender_process(void) {
     uint32_t current_time = xTaskGetTickCount();
     uint8_t frame_buffer[128]; // 用于构建帧的缓冲区
 
-    // 心跳包发送已移除，由独立的TCP服务器处理
-
-    // 每100毫秒发送控制数据 (ELRS OTA格式)
     if (current_time - g_last_data_send > pdMS_TO_TICKS(100)) {
         // 获取遥控通道数据
         uint16_t channels[16];  // ELRS支持16个通道
         uint8_t channel_count = 0;
 
         if (telemetry_data_converter_get_rc_channels(channels, &channel_count) == ESP_OK) {
-            // TODO: 使用ELRS OTA格式创建遥控数据包
-            // 当前简化实现：直接发送通道数据
-            // 完整实现应该：
-            // 1. 编码16个通道为OTA_Packet8格式 (11-bit CRSF值)
-            // 2. 添加CRC校验
-            // 3. 发送到ELRS接收器
             
             ESP_LOGD(TAG, "RC channels ready: %d channels", channel_count);
             // 实际发送在此处进行

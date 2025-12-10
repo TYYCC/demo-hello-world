@@ -112,6 +112,12 @@ void telemetry_service_update_data(const telemetry_data_t* telemetry_data);
 void telemetry_service_deinit(void);
 
 /**
+ * @brief 注入测试ELRS链路统计数据 (调试函数)
+ * 用于验证UI显示逻辑，生成模拟的ELRS链路统计和RC通道数据
+ */
+void telemetry_service_inject_test_data(void);
+
+/**
  * @brief RSSI值转换工具函数
  * 将存储的RSSI值 (dBm + 120偏移) 转换为实际的dBm值
  * 

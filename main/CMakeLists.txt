@@ -69,10 +69,8 @@ else()
 
         # app中遥测相关的文件
         "app/Telemetry/src/telemetry_protocol.c"
-        "app/Telemetry/src/telemetry_tcp.c"
         "app/Telemetry/src/telemetry_data_converter.c"
         "app/Telemetry/src/telemetry_main.c"
-        "app/Telemetry/src/telemetry_receiver.c"
         "app/Telemetry/src/telemetry_sender.c"
         
         # 字体相关文件

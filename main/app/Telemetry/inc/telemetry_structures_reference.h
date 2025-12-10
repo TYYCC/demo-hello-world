@@ -1,16 +1,6 @@
 /**
  * @file telemetry_structures_reference.h
  * @brief ELRS 遥测数据结构参考和工具函数
- * 
- * 本文件汇总了所有关键的遥测相关结构体定义，
- * 来自于 ELRS 组件库的不同模块。
- * 
- * 包含的结构体:
- * - 链路统计 (LinkStats, LinkStatistics)
- * - 遥测数据包 (Telemetry Packets)
- * - RSSI/SNR/LQ 相关定义
- * - RC 通道数据
- * - OTA 数据包格式
  */
 
 #pragma once

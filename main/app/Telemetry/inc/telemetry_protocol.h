@@ -5,14 +5,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/**
- * ============================================================================
- * ELRS协议兼容遥测实现
- * ============================================================================
- * 本模块实现基于ExpressLRS (ELRS) OTA协议的遥测数据包格式
- * 支持链路统计、遥控通道数据和扩展遥测信息的传输
- */
-
 // ============================================================================
 // ELRS OTA LinkStats 结构体 (下行遥测)
 // ============================================================================
@@ -127,14 +119,6 @@ uint16_t telemetry_crsf_to_pwm_us(uint16_t crsf_value);
  * @return CRSF通道值 (0-2047)
  */
 uint16_t telemetry_pwm_us_to_crsf(uint16_t pwm_us);
-
-/**
- * @brief 将旧格式遥测数据转换为新的ELRS格式
- * @param old_payload 旧协议数据
- * @param new_data 输出的ELRS遥测数据
- * @return 成功返回0，失败返回-1
- */
-int telemetry_protocol_convert_old_format(const void* old_payload, elrs_link_stats_t* new_data);
 
 /**
  * @brief 编码ELRS链路统计数据包

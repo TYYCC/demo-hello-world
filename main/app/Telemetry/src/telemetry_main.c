@@ -5,9 +5,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "lwip/sockets.h"
 #include "telemetry_data_converter.h"
-#include "telemetry_receiver.h"
 #include "telemetry_sender.h"
 #include <stdlib.h>
 #include <string.h>
@@ -18,14 +16,12 @@ static const char* TAG = "telemetry_main";
 // 全局变量
 static telemetry_status_t service_status = TELEMETRY_STATUS_STOPPED;
 static TaskHandle_t telemetry_task_handle = NULL;
-static TaskHandle_t server_task_handle = NULL;
 static telemetry_data_callback_t data_callback = NULL;
 static telemetry_data_t current_data = {0};
 static SemaphoreHandle_t data_mutex = NULL;
 static QueueHandle_t control_queue = NULL;
 
 // 内部函数声明
-static void telemetry_server_task(void* pvParameters);
 static void telemetry_data_task(void* pvParameters);
 
 typedef struct {
@@ -54,14 +50,7 @@ int telemetry_service_init(void) {
         return -1;
     }
 
-    // 初始化接收器和发送器
-    if (telemetry_receiver_init() != 0) {
-        ESP_LOGE(TAG, "Failed to initialize receiver");
-        vSemaphoreDelete(data_mutex);
-        vQueueDelete(control_queue);
-        return -1;
-    }
-
+    // 初始化发送器
     if (telemetry_sender_init() != 0) {
         ESP_LOGE(TAG, "Failed to initialize sender");
         vSemaphoreDelete(data_mutex);
@@ -93,29 +82,9 @@ int telemetry_service_start(telemetry_data_callback_t callback) {
     service_status = TELEMETRY_STATUS_STARTING;
     data_callback = callback;
 
-    // 启动接收器
-    if (telemetry_receiver_start() != 0) {
-        ESP_LOGE(TAG, "Failed to start receiver");
-        service_status = TELEMETRY_STATUS_ERROR;
-        return -1;
-    }
-
-    // 启动服务器任务
-    if (xTaskCreate(telemetry_server_task, "telemetry_server", 4096, NULL, 5, &server_task_handle) != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create server task");
-        telemetry_receiver_stop();
-        service_status = TELEMETRY_STATUS_ERROR;
-        return -1;
-    }
-
     // 启动数据处理任务
     if (xTaskCreate(telemetry_data_task, "telemetry_data", 4096, NULL, 4, &telemetry_task_handle) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create data task");
-        if (server_task_handle) {
-            vTaskDelete(server_task_handle);
-            server_task_handle = NULL;
-        }
-        telemetry_receiver_stop();
         service_status = TELEMETRY_STATUS_ERROR;
         return -1;
     }
@@ -138,23 +107,17 @@ int telemetry_service_stop(void) {
 
     service_status = TELEMETRY_STATUS_STOPPING;
 
-    // 停止接收器和发送器
-    telemetry_receiver_stop();
+    // 停止发送器
     telemetry_sender_deactivate();
 
     // 等待任务自然退出
     int wait_count = 0;
-    while ((server_task_handle != NULL || telemetry_task_handle != NULL) && wait_count < 50) {
+    while (telemetry_task_handle != NULL && wait_count < 50) {
         vTaskDelay(pdMS_TO_TICKS(100));
         wait_count++;
     }
 
     // 如果任务仍然存在，强制删除
-    if (server_task_handle != NULL && eTaskGetState(server_task_handle) != eDeleted) {
-        vTaskDelete(server_task_handle);
-        server_task_handle = NULL;
-    }
-
     if (telemetry_task_handle != NULL && eTaskGetState(telemetry_task_handle) != eDeleted) {
         vTaskDelete(telemetry_task_handle);
         telemetry_task_handle = NULL;
@@ -269,30 +232,13 @@ void telemetry_service_deinit(void) {
 }
 
 /**
- * @brief 服务器任务
- *
- * @param pvParameters 参数
- */
-static void telemetry_server_task(void* pvParameters) {
-    ESP_LOGI(TAG, "Server task started");
-
-    while (service_status == TELEMETRY_STATUS_RUNNING) {
-        // 这个函数会阻塞，直到一个客户端完成连接和断开的整个过程
-        telemetry_receiver_accept_connections();
-    }
-
-    ESP_LOGI(TAG, "Server task ended");
-    server_task_handle = NULL;
-    vTaskDelete(NULL);
-}
-
-/**
- * @brief 数据任务
+ * @brief 数据处理任务
  *
  * @param pvParameters 参数
  */
 static void telemetry_data_task(void* pvParameters) {
     control_command_t cmd;
+    uint32_t test_data_timer = 0;
 
     ESP_LOGI(TAG, "Data task started");
 
@@ -300,6 +246,13 @@ static void telemetry_data_task(void* pvParameters) {
         // 0. 更新传感器数据
         if (telemetry_data_converter_update() != ESP_OK) {
             ESP_LOGW(TAG, "Failed to update sensor data");
+        }
+
+        // 0.5 定期注入测试ELRS数据 (每500ms) - 用于演示UI
+        test_data_timer++;
+        if (test_data_timer >= 25) {  // 25 * 20ms = 500ms
+            telemetry_service_inject_test_data();
+            test_data_timer = 0;
         }
 
         // 1. 处理来自UI的控制命令 (使用非阻塞接收)
@@ -322,4 +275,59 @@ static void telemetry_data_task(void* pvParameters) {
     ESP_LOGI(TAG, "Data task ended");
     telemetry_task_handle = NULL;
     vTaskDelete(NULL);
+}
+
+/**
+ * @brief 注入测试ELRS链路统计数据 (用于调试UI显示)
+ * 这是一个临时函数，用于验证UI显示逻辑是否正确
+ */
+void telemetry_service_inject_test_data(void) {
+    if (xSemaphoreTake(data_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return;
+    }
+
+    // 生成模拟的ELRS链路统计数据
+    // RSSI: -80dBm (较好的信号)
+    current_data.uplink_rssi_1 = (uint8_t)(-80 + 120);  // = 40
+    current_data.uplink_rssi_2 = (uint8_t)(-85 + 120);  // = 35
+    
+    // 链路质量: 95%
+    current_data.link_quality = 95;
+    
+    // 信噪比: 10dB
+    current_data.snr = 10;
+    
+    // 天线信息
+    current_data.antenna_select = 0;  // 使用天线1
+    current_data.diversity_available = true;
+    current_data.model_match = true;
+    
+    // 生成随机的RC通道数据 (模拟摇杆输入)
+    // 通道0-1: 摇杆油门和方向
+    current_data.channels[0] = 992 + esp_random() % 100 - 50;  // CH0: 油门，中位±50
+    current_data.channels[1] = 992 + esp_random() % 100 - 50;  // CH1: 方向，中位±50
+    
+    // 其他通道设为中位
+    for (int i = 2; i < 16; i++) {
+        current_data.channels[i] = 992;
+    }
+    current_data.channels_valid = true;
+    current_data.is_armed = true;
+    
+    // 扩展数据
+    current_data.voltage = 12.0f + (esp_random() % 10) / 10.0f;  // 11.9-12.9V
+    current_data.current = 5.0f + (esp_random() % 30) / 10.0f;   // 5.0-8.0A
+    current_data.altitude = 100.0f + (esp_random() % 50);        // 100-150m
+    
+    xSemaphoreGive(data_mutex);
+    
+    // 触发UI更新回调
+    if (data_callback) {
+        data_callback(&current_data);
+    }
+    
+    ESP_LOGI(TAG, "Test data injected: RSSI1=%d dBm, LQ=%d%%, SNR=%d dB",
+             telemetry_rssi_raw_to_dbm(current_data.uplink_rssi_1),
+             current_data.link_quality,
+             current_data.snr);
 }

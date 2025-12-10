@@ -81,20 +81,3 @@ size_t telemetry_protocol_create_link_stats(uint8_t* buffer, size_t buffer_size,
     return sizeof(elrs_link_stats_t);
 }
 
-/**
- * @brief 将旧格式遥测数据转换为ELRS格式
- * 
- * @param old_payload 旧协议数据 (如果需要转换)
- * @param new_data 输出的ELRS遥测数据
- * @return 成功返回0，失败返回-1
- */
-int telemetry_protocol_convert_old_format(const void* old_payload, elrs_link_stats_t* new_data) {
-    if (!old_payload || !new_data) {
-        return -1;
-    }
-    
-    // 这里是旧协议到新协议的转换逻辑
-    // 根据实际的旧协议格式进行转换
-    // 现在默认返回失败，因为没有定义旧协议结构
-    return -1;
-}

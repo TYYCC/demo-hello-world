@@ -250,13 +250,6 @@ esp_err_t init_serial_display_task(void) {
     return ESP_OK;
 }
 
-/*
-esp_err_t init_tcp_hb_server_task(void) {
-    // TCP心跳服务器已禁用（使用ELRS协议）
-    return ESP_OK;
-}
-*/
-
 esp_err_t init_all_tasks(void) {
     ESP_LOGI(TAG, "Initializing all tasks...");
 
@@ -306,12 +299,6 @@ esp_err_t init_all_tasks(void) {
         return ret;
     }
 
-    // 初始化TCP心跳服务器任务（已禁用，使用ELRS协议）
-    // ret = init_tcp_hb_server_task();
-    // if (ret != ESP_OK) {
-    //     ESP_LOGE(TAG, "Failed to init TCP heartbeat server task");
-    //     return ret;
-    // }
     ui_start_animation_update_state(UI_STAGE_FINALIZING);
     ui_start_animation_set_progress((float)6 / UI_STAGE_DONE * 100);
     vTaskDelay(pdMS_TO_TICKS(200)); // 确保动画有时间更新
@@ -360,14 +347,6 @@ esp_err_t stop_all_tasks(void) {
         ESP_LOGI(TAG, "Serial display task stopped");
     }
 
-    // TCP心跳服务器任务已禁用（使用ELRS协议）
-    // if (s_tcp_hb_server_task_handle) {
-    //     tcp_server_hb_stop(); // 先停止TCP心跳服务器
-    //     vTaskDelete(s_tcp_hb_server_task_handle);
-    //     s_tcp_hb_server_task_handle = NULL;
-    //     ESP_LOGI(TAG, "TCP heartbeat server task stopped");
-    // }
-
     if (s_lsm6ds3_control_task != NULL) {
         vTaskDelete(s_lsm6ds3_control_task);
         s_lsm6ds3_control_task = NULL;
@@ -378,80 +357,6 @@ esp_err_t stop_all_tasks(void) {
     return ESP_OK;
 }
 
-// TCP心跳服务器回调函数
-/*
-static void tcp_hb_heartbeat_callback(uint32_t client_index,
-                                      const tcp_server_hb_payload_t* payload) {
-    ESP_LOGI(TAG, "TCP心跳包接收: 客户端=%d, 状态=%d, 时间戳=%u", client_index,
-             payload->device_status, payload->timestamp);
-
-    // 每次收到心跳包都更新状态栏显示连接状态
-    extern esp_err_t status_bar_manager_set_tcp_client_status(bool has_client_connected);
-    status_bar_manager_set_tcp_client_status(true);
-}
-
-static void tcp_hb_connection_callback(uint32_t client_index, bool connected) {
-    extern esp_err_t status_bar_manager_set_tcp_client_status(bool has_client_connected);
-
-    if (connected) {
-        ESP_LOGI(TAG, "TCP客户端 %d 已连接", client_index);
-        // 有客户端连接时显示连接图标
-        status_bar_manager_set_tcp_client_status(true);
-    } else {
-        ESP_LOGI(TAG, "TCP客户端 %d 已断开", client_index);
-
-        // 检查是否还有其他客户端连接
-        uint32_t active_count = tcp_server_hb_get_active_client_count();
-        if (active_count > 0) {
-            // 还有其他客户端连接，保持连接状态
-            status_bar_manager_set_tcp_client_status(true);
-        } else {
-            // 没有客户端连接了，显示断开状态
-            status_bar_manager_set_tcp_client_status(false);
-        }
-    }
-}
-
-// TCP心跳服务器任务包装
-static void tcp_hb_server_task(void* pvParameters) {
-    ESP_LOGI(TAG, "TCP Heartbeat Server Task started on core %d", xPortGetCoreID());
-
-    // 初始化TCP心跳服务器
-    if (!tcp_server_hb_init(NULL)) {
-        ESP_LOGE(TAG, "Failed to initialize TCP heartbeat server");
-        vTaskDelete(NULL);
-        return;
-    }
-
-    // 启动TCP心跳服务器
-    if (!tcp_server_hb_start("tcp_hb_server", 4096, TASK_PRIORITY_LOW, tcp_hb_heartbeat_callback,
-                             tcp_hb_connection_callback)) {
-        ESP_LOGE(TAG, "Failed to start TCP heartbeat server");
-        tcp_server_hb_destroy();
-        vTaskDelete(NULL);
-        return;
-    }
-
-    ESP_LOGI(TAG, "TCP heartbeat server started successfully on port %d",
-             TCP_SERVER_HB_DEFAULT_PORT);
-
-    // 任务保持运行，监控服务器状态
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(30000)); // 30秒检查一次
-
-        // 检查服务器状态
-        tcp_server_hb_state_t state = tcp_server_hb_get_state();
-        if (state == TCP_SERVER_HB_STATE_RUNNING) {
-            const tcp_server_hb_stats_t* stats = tcp_server_hb_get_stats();
-            ESP_LOGI(TAG, "TCP HB Server: active_clients=%d, heartbeat_received_count=%d", stats->active_clients,
-                     stats->heartbeat_received_count);
-        } else {
-            ESP_LOGW(TAG, "TCP heartbeat server state: %d", state);
-        }
-    }
-}
-*/
-
 void list_running_tasks(void) {
     ESP_LOGI(TAG, "=== Running Tasks ===");
     ESP_LOGI(TAG, "LVGL Task: %s", s_lvgl_task_handle ? "Running" : "Stopped");
@@ -459,7 +364,6 @@ void list_running_tasks(void) {
     ESP_LOGI(TAG, "Joystick Task: %s", s_joystick_task_handle ? "Running" : "Stopped");
     ESP_LOGI(TAG, "WiFi Task: %s", s_wifi_task_handle ? "Running" : "Stopped");
     ESP_LOGI(TAG, "Serial Display Task: %s", s_serial_display_task_handle ? "Running" : "Stopped");
-    // ESP_LOGI(TAG, "TCP HB Server Task: %s", s_tcp_hb_server_task_handle ? "Running" : "Stopped");  // TCP HB已禁用
     ESP_LOGI(TAG, "==================");
 }
 
@@ -469,4 +373,3 @@ TaskHandle_t get_monitor_task_handle(void) { return s_monitor_task_handle; }
 TaskHandle_t get_joystick_task_handle(void) { return s_joystick_task_handle; }
 TaskHandle_t get_wifi_task_handle(void) { return s_wifi_task_handle; }
 TaskHandle_t get_serial_display_task_handle(void) { return s_serial_display_task_handle; }
-// TaskHandle_t get_tcp_hb_server_task_handle(void) { return NULL; } // TCP HB服务器已禁用

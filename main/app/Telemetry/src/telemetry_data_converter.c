@@ -129,10 +129,9 @@ esp_err_t telemetry_data_converter_get_telemetry_data(telemetry_data_t *telemetr
         return ESP_ERR_INVALID_ARG;
     }
     
-    if (!s_data_valid) {
-        ESP_LOGW(TAG, "Sensor data not available");
-        return ESP_ERR_INVALID_STATE;
-    }
+    // 注：现在通过注入测试数据来填充遥测信息
+    // 传感器数据（电池、IMU等）通过转换器更新
+    // 如果有真实的传感器数据，从这里填充
     
     // 填充ELRS扩展遥测数据
     if (s_cached_data.battery.valid) {
@@ -155,8 +154,6 @@ esp_err_t telemetry_data_converter_get_telemetry_data(telemetry_data_t *telemetr
     
     // 高度数据 - 目前暂无传感器，设为0
     telemetry->altitude = 0;
-    
-    // 遥测数据打包完成
     
     return ESP_OK;
 }
