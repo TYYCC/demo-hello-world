@@ -14,6 +14,7 @@
 #include "wifi_manager.h"
 #include "key.h"
 #include "ui.h"
+#include "telemetry_main.h"
 
 // 声明音频接收函数
 extern esp_err_t audio_receiver_start(void);
@@ -51,7 +52,17 @@ static void joystick_adc_task(void* pvParameters) {
     while (1) {
         key_scan();
         joystick_adc_read(&data);
-        vTaskDelay(period_ticks);
+       
+           // 将摇杆数据（-100~100）映射到UI范围（0~1000）
+           // Y轴作为油门：-100 -> 0, 0 -> 500, 100 -> 1000
+           // X轴作为方向：-100 -> 0, 0 -> 500, 100 -> 1000
+           int32_t throttle = (data.norm_joy1_y + 100) * 500 / 100;
+           int32_t direction = (data.norm_joy1_x + 100) * 500 / 100;
+       
+           // 通过遥测服务更新摇杆数据（会更新UI和发送ELRS）
+           telemetry_service_update_joystick(throttle, direction);
+       
+           vTaskDelay(period_ticks);
     }
 }
 
@@ -250,6 +261,19 @@ esp_err_t init_serial_display_task(void) {
     return ESP_OK;
 }
 
+esp_err_t init_telemetry_service(void) {
+    ESP_LOGI(TAG, "Initializing telemetry service...");
+
+    // 初始化遥测服务
+    if (telemetry_service_init() != 0) {
+        ESP_LOGE(TAG, "Failed to initialize telemetry service");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_LOGI(TAG, "Telemetry service initialized successfully");
+    return ESP_OK;
+}
+
 esp_err_t init_all_tasks(void) {
     ESP_LOGI(TAG, "Initializing all tasks...");
 
@@ -290,7 +314,14 @@ esp_err_t init_all_tasks(void) {
         return ret;
     }
     ui_start_animation_update_state(UI_STAGE_ALMOST_READY);
-    ui_start_animation_set_progress((float)5 / UI_STAGE_DONE * 100);
+    ui_start_animation_set_progress((float)5 / UI_STAGE_DONE * 100);                                                                                                 
+
+    // 初始化遥测服务
+    ret = init_telemetry_service();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to init telemetry service");
+        return ret;
+    }
 
     // 初始化串口显示任务（后台服务）
     ret = init_serial_display_task();

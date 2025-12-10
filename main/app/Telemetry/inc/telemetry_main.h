@@ -111,6 +111,14 @@ int telemetry_service_get_data(telemetry_data_t* data);
 void telemetry_service_update_data(const telemetry_data_t* telemetry_data);
 
 /**
+ * @brief (由摇杆任务调用) 更新本地摇杆数据并通知UI/ELRS
+ *
+ * @param throttle 油门值 (0-1000)
+ * @param direction 方向值 (0-1000)
+ */
+void telemetry_service_update_joystick(int32_t throttle, int32_t direction);
+
+/**
  * @brief 反初始化遥测服务
  */
 void telemetry_service_deinit(void);

@@ -131,6 +131,53 @@ static void settings_btn_event_handler(lv_event_t* e);
 static void start_stop_btn_event_handler(lv_event_t* e);
 static void telemetry_data_update_callback(const telemetry_data_t* data);
 
+// 在LVGL任务上下文中执行滑动条更新的回调参数
+typedef struct {
+    int32_t throttle;
+    int32_t direction;
+} slider_update_params_t;
+
+// LVGL安全的回调执行（在渲染线程）
+static void ui_telemetry_update_sliders_cb(void* user_data) {
+    slider_update_params_t* params = (slider_update_params_t*)user_data;
+    if (params == NULL) return;
+
+    if (throttle_slider && lv_obj_is_valid(throttle_slider)) {
+        lv_slider_set_value(throttle_slider, params->throttle, LV_ANIM_OFF);
+    }
+
+    if (direction_slider && lv_obj_is_valid(direction_slider)) {
+        lv_slider_set_value(direction_slider, params->direction, LV_ANIM_OFF);
+    }
+
+    lv_mem_free(params);
+}
+
+/**
+ * @brief 更新滑动条显示（摇杆本地输入同步）
+ *        通过 lv_async_call 切到 LVGL 线程执行，避免渲染期修改区域导致崩溃
+ */
+void ui_telemetry_update_sliders(int32_t throttle, int32_t direction) {
+    // 限制范围到0-1000
+    if (throttle < 0) throttle = 0;
+    if (throttle > 1000) throttle = 1000;
+    if (direction < 0) direction = 0;
+    if (direction > 1000) direction = 1000;
+
+    slider_update_params_t* params = (slider_update_params_t*)lv_mem_alloc(sizeof(slider_update_params_t));
+    if (params == NULL) {
+        return; // 内存不足时直接忽略本次更新
+    }
+
+    params->throttle = throttle;
+    params->direction = direction;
+
+    // 异步调度到LVGL线程执行，若失败释放内存
+    if (lv_async_call(ui_telemetry_update_sliders_cb, params) != LV_RES_OK) {
+        lv_mem_free(params);
+    }
+}
+
 /**
  * @brief 创建遥测界面
  *
@@ -439,8 +486,7 @@ static void start_stop_btn_event_handler(lv_event_t* e) {
                 if (service_status_label) {
                     lv_label_set_text(service_status_label, text->status_running);
                 }
-
-                LV_LOG_USER("Telemetry service started");
+                
             } else {
                 LV_LOG_ERROR("Failed to start telemetry service");
                 if (service_status_label) {
@@ -489,7 +535,6 @@ static void start_stop_btn_event_handler(lv_event_t* e) {
                     lv_label_set_text(gps_label, text->gps_disconnected);
                 }
 
-                LV_LOG_USER("Telemetry service stopped");
             } else {
                 // 停止失败或服务已经停止
                 if (!telemetry_service_active) {

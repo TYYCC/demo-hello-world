@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "common.h"
+#include "ui_telemetry.h"
 
 extern "C" void elrs_set_channel(uint8_t channel, uint16_t value);
 extern "C" void elrs_set_channels(const uint16_t *values, uint8_t count);
@@ -178,6 +179,30 @@ void telemetry_service_update_data(const telemetry_data_t* telemetry_data) {
 }
 
 /**
+ * @brief 更新摇杆数据（本地输入）
+ *
+ * @param throttle 油门值 (0-1000)
+ * @param direction 方向值 (0-1000)
+ */
+void telemetry_service_update_joystick(int32_t throttle, int32_t direction) {
+    if (service_status != TELEMETRY_STATUS_RUNNING) {
+        return;
+    }
+
+    // 限制范围
+    if (throttle < 0) throttle = 0;
+    if (throttle > 1000) throttle = 1000;
+    if (direction < 0) direction = 0;
+    if (direction > 1000) direction = 1000;
+
+    // 同步UI滑动条显示
+    ui_telemetry_update_sliders(throttle, direction);
+
+    // 发送到ELRS
+    telemetry_service_send_control(throttle, direction);
+}
+
+/**
  * @brief 获取遥测数据
  *
  * @param data 遥测数据
@@ -229,8 +254,8 @@ static void telemetry_data_task(void* pvParameters) {
             test_data_timer = 0;
         }
 
-        // 任务循环频率: 50Hz (20ms)
-        vTaskDelay(pdMS_TO_TICKS(20));
+        // 任务循环频率: 1000Hz (1ms)
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
  
     ESP_LOGI(TAG, "Data task ended");
