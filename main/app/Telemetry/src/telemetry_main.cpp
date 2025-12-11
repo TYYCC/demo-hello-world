@@ -169,7 +169,7 @@ void telemetry_service_update_data(const telemetry_data_t* telemetry_data) {
     if (xSemaphoreTake(data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         memcpy(&current_data, telemetry_data, sizeof(telemetry_data_t));
         if (data_callback) {
-            data_callback(&current_data);
+            lv_async_call((lv_async_cb_t)data_callback, &current_data);
         }
 
         xSemaphoreGive(data_mutex);
@@ -241,21 +241,12 @@ void telemetry_service_deinit(void) {
  * @param pvParameters 参数
  */
 static void telemetry_data_task(void* pvParameters) {
-    uint32_t test_data_timer = 0;
 
     ESP_LOGI(TAG, "Data task started");
 
     while (service_status == TELEMETRY_STATUS_RUNNING) {
-        // 定期注入测试ELRS数据 (每500ms) - 用于演示UI
-        // 实际运行时，接收器会通过 telemetry_service_update_data() 提供真实数据
-        test_data_timer++;
-        if (test_data_timer >= 25) {  // 25 * 20ms = 500ms
-            telemetry_service_inject_test_data();
-            test_data_timer = 0;
-        }
-
-        // 任务循环频率: 1000Hz (1ms)
-        vTaskDelay(pdMS_TO_TICKS(1));
+        telemetry_service_update_data(&current_data);
+        vTaskDelay(pdMS_TO_TICKS(20));// 任务循环频率: 50Hz (20ms)
     }
  
     ESP_LOGI(TAG, "Data task ended");
