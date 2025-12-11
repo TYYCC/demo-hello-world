@@ -114,6 +114,7 @@ void app_main(void) {
 #include <stdio.h>
 
 #include "Arduino.h"
+#include "options.h"
 
 // FreeRTOS 头文件
 #include "freertos/FreeRTOS.h"
@@ -130,13 +131,11 @@ static const char* TAG = "MAIN";
 extern "C" {
 extern void elrs_setup(void);
 extern void elrs_loop(void);
+extern esp_err_t components_init(void);
 }
 #endif
 
-extern "C" {
-extern esp_err_t components_init(void);
-}
-
+extern firmware_options_t firmwareOptions;  // 获取ELRS固件选项
 extern "C" void app_main(void) {
 #if defined(ELRS_EN)
     // 静默 Arduino HAL 的 WDT 相关警告日志（disableCore*WDT 会报 "Failed to remove"）
@@ -152,6 +151,9 @@ extern "C" void app_main(void) {
     Serial.println("\n[ELRS] Serial initialized for ELRS debug output");
     
     elrs_setup();
+    
+    firmwareOptions.wifi_auto_on_interval = -1;
+    ESP_LOGI(TAG, "Disabled auto WiFi startup (wifi_auto_on_interval = -1)");
     
     // 恢复日志等级
     esp_log_level_set("*", original_level);

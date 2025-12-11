@@ -10,6 +10,8 @@
 #include <string.h>
 #include "common.h"
 #include "ui_telemetry.h"
+#include "telemetry_endpoint.h"
+#include "CRSFRouter.h"
 
 extern "C" void elrs_set_channel(uint8_t channel, uint16_t value);
 extern "C" void elrs_set_channels(const uint16_t *values, uint8_t count);
@@ -23,6 +25,7 @@ static TaskHandle_t telemetry_task_handle = NULL;
 static telemetry_data_callback_t data_callback = NULL;
 static telemetry_data_t current_data = {0};
 static SemaphoreHandle_t data_mutex = NULL;
+static TelemetryEndpoint* telemetry_endpoint = NULL;
 
 // 内部函数声明
 static void telemetry_data_task(void* pvParameters);
@@ -63,6 +66,13 @@ int telemetry_service_start(telemetry_data_callback_t callback) {
 
     service_status = TELEMETRY_STATUS_STARTING;
     data_callback = callback;
+
+    // 创建并注册遥测端点
+    if (telemetry_endpoint == NULL) {
+        telemetry_endpoint = new TelemetryEndpoint();
+        crsfRouter.addEndpoint(telemetry_endpoint);
+        ESP_LOGI(TAG, "Telemetry endpoint registered");
+    }
 
     // 启动数据处理任务
     if (xTaskCreate(telemetry_data_task, "telemetry_data", 4096, NULL, 4, &telemetry_task_handle) != pdPASS) {
@@ -233,6 +243,14 @@ void telemetry_service_deinit(void) {
         data_mutex = NULL;
     }
 
+    // 清理遥测端点
+    if (telemetry_endpoint) {
+        // crsfRouter.removeEndpoint(telemetry_endpoint); // No removeEndpoint method
+        delete telemetry_endpoint;
+        telemetry_endpoint = NULL;
+        ESP_LOGI(TAG, "Telemetry endpoint removed");
+    }
+
     ESP_LOGI(TAG, "Telemetry service deinitialized");
 }
 
@@ -245,65 +263,11 @@ static void telemetry_data_task(void* pvParameters) {
     ESP_LOGI(TAG, "Data task started");
 
     while (service_status == TELEMETRY_STATUS_RUNNING) {
-        telemetry_service_update_data(&current_data);
+        // telemetry_service_update_data(&current_data);
         vTaskDelay(pdMS_TO_TICKS(20));// 任务循环频率: 50Hz (20ms)
     }
  
     ESP_LOGI(TAG, "Data task ended");
     telemetry_task_handle = NULL;
     vTaskDelete(NULL);
-}
-
-/**
- * @brief 注入测试ELRS链路统计数据 (用于调试UI显示)
- * 这是一个临时函数，用于验证UI显示逻辑是否正确
- */
-void telemetry_service_inject_test_data(void) {
-    if (xSemaphoreTake(data_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-        return;
-    }
-
-    // 生成模拟的ELRS链路统计数据
-    // RSSI: -80dBm (较好的信号)
-    current_data.uplink_rssi_1 = (uint8_t)(-80 + 120);  // = 40
-    current_data.uplink_rssi_2 = (uint8_t)(-85 + 120);  // = 35
-    
-    // 链路质量: 95%
-    current_data.link_quality = 95;
-    
-    // 信噪比: 10dB
-    current_data.snr = 10;
-    
-    // 天线信息
-    current_data.antenna_select = 0;  // 使用天线1
-    current_data.diversity_available = true;
-    current_data.model_match = true;
-    
-    // 生成随机的RC通道数据 (模拟摇杆输入)
-    // 通道0-1: 摇杆油门和方向
-    current_data.channels[0] = 992 + esp_random() % 100 - 50;  // CH0: 油门，中位±50
-    current_data.channels[1] = 992 + esp_random() % 100 - 50;  // CH1: 方向，中位±50
-    
-    // 其他通道设为中位
-    for (int i = 2; i < 16; i++) {
-        current_data.channels[i] = 992;
-    }
-    current_data.channels_valid = true;
-    current_data.is_armed = true;
-    
-    // 扩展数据
-    current_data.voltage = 12.0f + (esp_random() % 10) / 10.0f;  // 11.9-12.9V
-    current_data.current = 5.0f + (esp_random() % 30) / 10.0f;   // 5.0-8.0A
-    current_data.altitude = 100.0f + (esp_random() % 50);        // 100-150m
-    
-    xSemaphoreGive(data_mutex);
-    
-    if (data_callback) {
-        lv_async_call((lv_async_cb_t)data_callback, &current_data);
-    }
-    
-    ESP_LOGD(TAG, "Test data injected: RSSI1=%d dBm, LQ=%d%%, SNR=%d dB",
-             telemetry_rssi_raw_to_dbm(current_data.uplink_rssi_1),
-             current_data.link_quality,
-             current_data.snr);
 }

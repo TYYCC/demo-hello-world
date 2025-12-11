@@ -58,7 +58,7 @@ esp_err_t ui_event_queue_send(const lvgl_event_msg_t* event) {
     if (result == pdPASS) {
         return ESP_OK;
     } else if (result == errQUEUE_FULL) {
-        ESP_LOGW(TAG, "UI event queue is full, dropping event type: %d", event->type);
+        // ESP_LOGW(TAG, "UI event queue is full, dropping event type: %d", event->type);
         return ESP_ERR_NO_MEM;
     }
     return ESP_FAIL;
