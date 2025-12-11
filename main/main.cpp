@@ -8,8 +8,6 @@
  *
  */
 
-#if EN_RECEIVER_MODE
-
 #include "esp_log.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
@@ -102,87 +100,3 @@ void app_main(void) {
         vTaskDelay(pdMS_TO_TICKS(30000));
     }
 }
-#else
-
-// ESP-IDF 系统头文件必须在 FreeRTOS 头文件之前
-#include "esp_chip_info.h"
-#include "esp_log.h"
-#include "esp_system.h"
-#include "esp_task_wdt.h"
-#include "sdkconfig.h"
-#include <inttypes.h>
-#include <stdio.h>
-
-#include "Arduino.h"
-#include "options.h"
-
-// FreeRTOS 头文件
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-
-// 项目组件头文件
-#include "task_init.h"
-
-static const char* TAG = "MAIN";
-
-#define ELRS_EN
-
-#if defined(ELRS_EN)
-extern "C" {
-extern void elrs_setup(void);
-extern void elrs_loop(void);
-extern esp_err_t components_init(void);
-}
-#endif
-
-extern firmware_options_t firmwareOptions;  // 获取ELRS固件选项
-extern "C" void app_main(void) {
-#if defined(ELRS_EN)
-    // 静默 Arduino HAL 的 WDT 相关警告日志（disableCore*WDT 会报 "Failed to remove"）
-    // Arduino HAL 使用空 TAG，所以用 "*" 临时降低全局错误日志等级，初始化后恢复
-    esp_log_level_t original_level = esp_log_level_get("*");
-    esp_log_level_set("*", ESP_LOG_WARN);  // 临时只显示警告及以上
-    initArduino();
-    
-    // 初始化 Arduino Serial 用于 ELRS 日志输出（通过 USB CDC）
-    Serial.begin(115200);
-    Serial.setDebugOutput(true);  // 允许调试输出
-    delay(100);  // 等待串口稳定
-    Serial.println("\n[ELRS] Serial initialized for ELRS debug output");
-    
-    elrs_setup();
-    
-    firmwareOptions.wifi_auto_on_interval = -1;
-    ESP_LOGI(TAG, "Disabled auto WiFi startup (wifi_auto_on_interval = -1)");
-    
-    // 恢复日志等级
-    esp_log_level_set("*", original_level);
-    
-#endif
-
-    // 初始化所有组件
-    esp_err_t ret = components_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize components: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    // 初始化任务管理
-    ret = init_all_tasks();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize tasks: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    // 主任务进入轻量级监控循环
-    while (1) {
-
-#if defined(ELRS_EN)
-        elrs_loop();
-#endif
-        ESP_LOGI(TAG, "Main loop: System running normally");
-        vTaskDelay(pdMS_TO_TICKS(30000)); // 30秒打印一次状态
-    }
-}
-
-#endif
