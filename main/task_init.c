@@ -385,16 +385,6 @@ esp_err_t stop_all_tasks(void) {
     return ESP_OK;
 }
 
-void list_running_tasks(void) {
-    ESP_LOGI(TAG, "=== Running Tasks ===");
-    ESP_LOGI(TAG, "LVGL Task: %s", s_lvgl_task_handle ? "Running" : "Stopped");
-    ESP_LOGI(TAG, "Monitor Task: %s", s_monitor_task_handle ? "Running" : "Stopped");
-    ESP_LOGI(TAG, "Joystick Task: %s", s_joystick_task_handle ? "Running" : "Stopped");
-    ESP_LOGI(TAG, "WiFi Task: %s", s_wifi_task_handle ? "Running" : "Stopped");
-    ESP_LOGI(TAG, "Serial Display Task: %s", s_serial_display_task_handle ? "Running" : "Stopped");
-    ESP_LOGI(TAG, "==================");
-}
-
 // 任务句柄获取函数
 TaskHandle_t get_lvgl_task_handle(void) { return s_lvgl_task_handle; }
 TaskHandle_t get_monitor_task_handle(void) { return s_monitor_task_handle; }

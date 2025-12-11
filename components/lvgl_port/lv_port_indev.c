@@ -33,8 +33,6 @@ static const char* TAG = "lv_port_indev";
  *      TYPEDEFS
  **********************/
 
-// (已移除 touch_event_t，改用原子变量存储最新坐标)
-
 /**********************
  *  STATIC PROTOTYPES
  **********************/

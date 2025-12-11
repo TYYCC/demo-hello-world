@@ -174,18 +174,12 @@ extern "C" void app_main(void) {
         return;
     }
 
-    // 显示当前运行的任务
-    vTaskDelay(pdMS_TO_TICKS(1000)); // 等待任务启动
-    list_running_tasks();
-
     // 主任务进入轻量级监控循环
     while (1) {
 
 #if defined(ELRS_EN)
         elrs_loop();
 #endif
-        // ESP_LOGI(TAG, "Main loop: System running normally, free heap: %lu bytes",
-        //          (unsigned long)esp_get_free_heap_size());
         ESP_LOGI(TAG, "Main loop: System running normally");
         vTaskDelay(pdMS_TO_TICKS(30000)); // 30秒打印一次状态
     }
