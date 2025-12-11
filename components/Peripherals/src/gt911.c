@@ -9,6 +9,7 @@ static const char* TAG = "GT911";
 
 static i2c_master_dev_handle_t g_gt911_dev_handle = NULL;
 static volatile bool g_touch_irq_flag = false;
+static gt911_irq_callback_t g_irq_callback = NULL;
 
 // GT911 寄存器地址 (基于真实数据手册)
 #define GT911_REG_COMMAND       0x8040
@@ -31,7 +32,13 @@ static volatile bool g_touch_irq_flag = false;
 #define GT911_CMD_READ_STATUS   0x00
 #define GT911_CMD_CLEAR_STATUS  0x00
 
-static void IRAM_ATTR gt911_isr_handler(void* arg) { g_touch_irq_flag = true; }
+static void IRAM_ATTR gt911_isr_handler(void* arg) { 
+    g_touch_irq_flag = true;
+    // 触发回调函数 (如果已注册)
+    if (g_irq_callback != NULL) {
+        g_irq_callback();
+    }
+}
 
 static esp_err_t gt911_read_reg(uint16_t reg, uint8_t* data, size_t len) {
     uint8_t reg_buf[2] = {(reg >> 8) & 0xFF, reg & 0xFF};
@@ -184,4 +191,28 @@ esp_err_t gt911_read_touch_points(gt911_touch_point_t* points, uint8_t* num_poin
     }
     
     return ESP_OK;
+}
+
+/**
+ * @brief 注册 GT911 中断回调函数
+ * @param callback 回调函数指针，当触摸中断发生时调用
+ */
+void gt911_register_irq_callback(gt911_irq_callback_t callback) {
+    g_irq_callback = callback;
+    ESP_LOGI(TAG, "GT911 IRQ callback registered");
+}
+
+/**
+ * @brief 检查 GT911 中断标志是否被触发
+ * @return true 中断被触发, false 未触发
+ */
+bool gt911_is_irq_triggered(void) {
+    return g_touch_irq_flag;
+}
+
+/**
+ * @brief 清除 GT911 中断标志
+ */
+void gt911_clear_irq_flag(void) {
+    g_touch_irq_flag = false;
 }

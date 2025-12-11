@@ -22,9 +22,15 @@ typedef struct {
     uint8_t area;
 } gt911_touch_point_t;
 
+// 中断回调函数类型
+typedef void (*gt911_irq_callback_t)(void);
+
 esp_err_t gt911_init(void);
 esp_err_t gt911_read_touch_points(gt911_touch_point_t* points, uint8_t* num_points);
 uint8_t gt911_get_touch_points(void);
+void gt911_register_irq_callback(gt911_irq_callback_t callback);
+bool gt911_is_irq_triggered(void);
+void gt911_clear_irq_flag(void);
 
 #ifdef __cplusplus
 }
