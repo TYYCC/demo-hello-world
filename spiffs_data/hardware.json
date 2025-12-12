@@ -1,29 +1,32 @@
 {
-    "customised": true,
-    "serial_rx": -1,
-    "serial_tx": -1,
-    "radio_busy": 15,
-    "radio_dio1": 18,
-    "radio_miso": 39,
-    "radio_mosi": 2,
-    "radio_nss": 16,
-    "radio_rst": 5,
-    "radio_sck": 1,
-    "radio_dcdc": true,
-    "power_txen": 45,
-    "power_rxen": 48,
-    "power_min": 0,
-    "power_high": 3,
-    "power_max": 6,
-    "power_default": 3,
-    "power_values": [0, 1, 2, 3, 4, 5, 6, 7],
-    "led_rgb": -1,
-    "led_rgb_isgrb": false,
-    "joystick": -1,
-    "button": -1,
-    "screen_type": 0,
-    "use_backpack": false,
-    "debug_backpack_baud": -1,
-    "debug_backpack_rx": -1,
-    "debug_backpack_tx": -1
+    "serial_rx":44,
+    "serial_tx":43,
+
+    "radio_miso":15,
+    "radio_mosi":16,
+    "radio_sck":17,
+
+    "radio_busy":12,
+    "radio_dio1":21,
+    "radio_rst":11,
+    "radio_nss":18,
+
+    "power_rxen":38,
+    "power_txen":39,
+
+    "power_min":0,
+    "power_high":0,
+    "power_max":0,
+    "power_default":0,
+    "power_control":0,
+    "power_values":[13],
+
+    "led_rgb":45,
+    "led_rgb_isgrb":true,
+    "ledidx_rgb_status":[0],
+    "ledidx_rgb_boot":[0],
+
+    "button": 48,
+
+    "pwm_outputs":[10,9,3,8,7,6,5,4]
 }

@@ -1,9 +1,8 @@
 #include "usb_device_receiver.h"
 #include "sdkconfig.h"
 
-#include "tinyusb.h"
-#include "tusb.h"
-#include "tusb_cdc_acm.h"
+// 使用桥接层以避免在 C 源中直接引用 C++ 符号
+#include "usb_serial_bridge.h"
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -21,15 +20,9 @@ static uint8_t* s_parse_buf = NULL;
 static size_t s_parse_len = 0;
 static bool s_usb_connected = false;
 
-// USB CDC 连接状态回调
-static void usb_line_state_changed_callback(int itf, cdcacm_event_t* event) {
-    if (event->type == CDC_EVENT_LINE_STATE_CHANGED) {
-        bool dtr = event->line_state_changed_data.dtr;
-        bool rts = event->line_state_changed_data.rts;
-        s_usb_connected = (dtr && rts);
-        ESP_LOGI(TAG, "USB连接状态: DTR=%d, RTS=%d, 连接=%s", dtr, rts,
-                 s_usb_connected ? "已连接" : "断开");
-    }
+// 连接状态：通过 USBSerial.operator bool() 与 DTR/RTS 检查
+static void update_usb_connected(void) {
+    s_usb_connected = usb_serial_connected();
 }
 
 static void parse_and_dispatch(const uint8_t* data, size_t len) {
@@ -147,8 +140,8 @@ static void usb_rx_task(void* arg) {
         return;
     }
 
-    // 等待USB连接建立
-    while (!tusb_cdc_acm_initialized(TINYUSB_CDC_ACM_0)) {
+    // 等待 USBSerial 可用
+    while (!usb_serial_connected()) {
         ESP_LOGI(TAG, "等待USB CDC初始化完成...");
         vTaskDelay(pdMS_TO_TICKS(500));
     }
@@ -157,8 +150,11 @@ static void usb_rx_task(void* arg) {
 
     while (1) {
         size_t n = 0;
-        esp_err_t ret = tinyusb_cdcacm_read(TINYUSB_CDC_ACM_0, s_rx_chunk, sizeof(s_rx_chunk), &n);
-        if (ret == ESP_OK && n > 0) {
+        update_usb_connected();
+        if (s_usb_connected && usb_serial_available() > 0) {
+            n = usb_serial_read(s_rx_chunk, sizeof(s_rx_chunk));
+        }
+        if (n > 0) {
             // 接收到USB数据
             if (s_parse_len + (size_t)n > USB_RX_BUFFER_SIZE) {
                 size_t to_copy = USB_RX_BUFFER_SIZE;
@@ -190,47 +186,11 @@ esp_err_t usb_receiver_init(void) {
         ESP_LOGE(TAG, "Failed to allocate parse buffer from PSRAM");
         return ESP_ERR_NO_MEM;
     }
-    // ESP32-S3内置USB接口，不需要外部PHY
-    const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = NULL,        // 使用默认设备描述符
-        .string_descriptor = NULL,        // 使用默认字符串描述符
-        .external_phy = false,            // ESP32-S3使用内置USB PHY
-        .configuration_descriptor = NULL, // 使用默认配置描述符
-        .self_powered = false,            // 总线供电模式
-        .vbus_monitor_io = -1,            // ESP32-S3不需要外部VBUS监控
-    };
-    esp_err_t ret = tinyusb_driver_install(&tusb_cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "tinyusb_driver_install 失败: %s", esp_err_to_name(ret));
-        free(s_parse_buf);
-        s_parse_buf = NULL;
-        return ret;
-    }
-
-    tinyusb_config_cdcacm_t acm_cfg = {
-        .usb_dev = TINYUSB_USBDEV_0,
-        .cdc_port = TINYUSB_CDC_ACM_0,
-        .rx_unread_buf_sz = 2048, // 扩大内部未读缓冲
-        .callback_rx = NULL,
-        .callback_rx_wanted_char = NULL,
-        .callback_line_state_changed = usb_line_state_changed_callback,
-        .callback_line_coding_changed = NULL,
-    };
-    ret = tusb_cdc_acm_init(&acm_cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "tinyusb_cdcacm_init 失败: %s", esp_err_to_name(ret));
-        free(s_parse_buf);
-        s_parse_buf = NULL;
-        return ret;
-    }
-
-    ESP_LOGI(TAG, "USB CDC 初始化完成");
-
-    // 等待USB连接建立
-    ESP_LOGI(TAG, "等待USB设备连接...");
-
-    // 给USB设备一些时间来枚举
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    // 使用桥接层初始化 USBSerial
+    usb_serial_init(115200);
+    vTaskDelay(pdMS_TO_TICKS(300));
+    update_usb_connected();
+    ESP_LOGI(TAG, "USB CDC 初始化完成, connected=%d", s_usb_connected);
     return ESP_OK;
 }
 
@@ -246,8 +206,7 @@ void usb_receiver_stop(void) {
         vTaskDelete(s_usb_task);
         s_usb_task = NULL;
     }
-    // tinyusb_driver_uninstall 函数在当前版本中不可用 (IDF-1474)
-    // 由于没有卸载函数，直接返回
+    // Arduino 栈无显式卸载；释放解析缓冲后返回
     if (s_parse_buf) {
         free(s_parse_buf);
         s_parse_buf = NULL;
@@ -259,11 +218,8 @@ void cmd_terminal_write(const char* s) {
     if (!s || !s_usb_connected)
         return;
     size_t len = strlen(s);
-    // 将整段字符串写入CDC队列并flush
-    tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, (const uint8_t*)s, len);
-    tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, 0);
-    // 追加换行，便于在终端阅读
-    const char crlf[] = "\r\n";
-    tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, (const uint8_t*)crlf, sizeof(crlf) - 1);
-    tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, 0);
+    // 通过桥接层写回到主机
+    usb_serial_write((const uint8_t*)s, len);
+    usb_serial_write((const uint8_t*)"\r\n", 2);
+    usb_serial_flush();
 }

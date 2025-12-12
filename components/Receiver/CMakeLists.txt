@@ -4,6 +4,7 @@ set(RECEIVER_SRCS
     "Communication/src/settings_manager.c"
     "Communication/src/usb_interface.c"
     "Communication/src/usb_device_receiver.c"
+    "Communication/src/usb_serial_bridge.cpp"
 
     "image/src/jpeg_stream_encoder.c"
 
@@ -23,5 +24,5 @@ set(RECEIVER_SRCS
 idf_component_register(
     SRCS ${RECEIVER_SRCS}
     INCLUDE_DIRS "tcp_hb/inc" "tcp_telemetry/inc" "tcp_server/inc" "other/inc" "Communication/inc" "image/inc"
-    REQUIRES log driver esp_tinyusb esp_new_jpeg nvs_flash spi_flash Peripherals
+    REQUIRES log driver esp_new_jpeg nvs_flash spi_flash Peripherals arduino-esp32
 )

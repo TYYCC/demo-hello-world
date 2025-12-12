@@ -19,4 +19,3 @@ dependencies:
   espressif/mavlink: "^1.0.0"
   ESP32Async/ESPAsyncWebServer: ^3.9.0
   bblanchon/ArduinoJson: ^7.0.0
-  esp_tinyusb: ^2.0.1

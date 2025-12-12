@@ -5,7 +5,7 @@ set(MAIN_SRCS
 idf_component_register(
     SRCS ${MAIN_SRCS}
     INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/components/Receiver/Communication/inc" "${CMAKE_SOURCE_DIR}/components/Receiver/other/inc" "${CMAKE_SOURCE_DIR}/components/Receiver/tcp_server/inc"
-    REQUIRES esp_timer Receiver driver spi_flash esp_common
+    REQUIRES esp_timer Receiver driver spi_flash esp_common arduino-esp32
 )
 
 add_library(MY_DEFS INTERFACE)

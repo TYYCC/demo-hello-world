@@ -91,7 +91,7 @@ static void setFanSpeed()
     };
 
     uint32_t speed = GPIO_PIN_FAN_SPEEDS == nullptr ? defaultFanSpeeds[POWERMGNT::currPower()] : GPIO_PIN_FAN_SPEEDS[POWERMGNT::currPower()-POWERMGNT::getMinPower()];
-    ledcWrite(fanChannel, speed);
+    ledcWrite(GPIO_PIN_FAN_PWM, speed);
     DBGLN("Fan speed: %d (power) -> %u (pwm)", POWERMGNT::currPower(), speed);
 }
 #endif
@@ -152,7 +152,7 @@ static void timeoutFan()
             }
             else if (GPIO_PIN_FAN_PWM != UNDEF_PIN)
             {
-                ledcWrite(fanChannel, 0);
+                ledcWrite(GPIO_PIN_FAN_PWM, 0);
             }
             fanStateDuration = 0;
             fanIsOn = false;
@@ -177,7 +177,7 @@ static void timeoutFan()
             {
                 // bump the fan to full power for one cycle in case
                 // the PWM level is not sufficient to get it moving
-                ledcWrite(fanChannel, 192);
+                ledcWrite(GPIO_PIN_FAN_PWM, 192);
                 fanStateDuration = FAN_MIN_CHANGETIME;
             }
             fanIsOn = true;
@@ -205,9 +205,8 @@ static int start()
 {
     if (GPIO_PIN_FAN_PWM != UNDEF_PIN)
     {
-        ledcSetup(fanChannel, 25000, 8);
-        ledcAttachPin(GPIO_PIN_FAN_PWM, fanChannel);
-        ledcWrite(fanChannel, 0);
+        ledcAttach(GPIO_PIN_FAN_PWM, 25000, 8);
+        ledcWrite(GPIO_PIN_FAN_PWM, 0);
     }
 #if !defined(PLATFORM_ESP32_C3)
     if (GPIO_PIN_FAN_TACHO != UNDEF_PIN)

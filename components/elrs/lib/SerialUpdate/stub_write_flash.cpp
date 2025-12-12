@@ -9,13 +9,16 @@
 #if defined(PLATFORM_ESP32) && defined(TARGET_RX)
 
 #include "stub_write_flash.h"
-#include "rom/miniz.h"
 #include "slip.h"
-#include "soc_support.h"
+#include "soc_support.h" 
 #include "stub_flasher.h"
 #include "targets.h"
 
 #include <Update.h>
+
+// ESP-IDF 5.x removed rom/miniz.h, disable deflate support for now
+// #include "rom/miniz.h"
+#define MINIZ_UNAVAILABLE
 
 /* local flashing state
 
@@ -37,10 +40,12 @@ static struct
     uint32_t last_end;
     MD5Builder md5;
 
+#ifndef MINIZ_UNAVAILABLE
     /* inflator state for deflate write */
     tinfl_decompressor inflator;
     /* number of compressed bytes remaining to read */
     uint32_t remaining_compressed;
+#endif
 } fs;
 
 bool is_in_flash_mode(void)
@@ -81,10 +86,15 @@ esp_command_error handle_flash_begin(uint32_t total_size, uint32_t offset)
 
 esp_command_error handle_flash_deflated_begin(uint32_t uncompressed_size, uint32_t compressed_size, uint32_t offset)
 {
+#ifdef MINIZ_UNAVAILABLE
+    // Deflate compression not supported without rom/miniz.h
+    return ESP_INVALID_COMMAND;
+#else
     esp_command_error err = handle_flash_begin(uncompressed_size, offset);
     tinfl_init(&fs.inflator);
     fs.remaining_compressed = compressed_size;
     return err;
+#endif
 }
 
 void handle_flash_data(uint8_t *data_buf, uint32_t length)
@@ -110,6 +120,10 @@ void handle_flash_data(uint8_t *data_buf, uint32_t length)
 
 void handle_flash_deflated_data(uint8_t *data_buf, uint32_t length)
 {
+#ifdef MINIZ_UNAVAILABLE
+    // Deflate compression not supported without rom/miniz.h
+    fs.last_error = ESP_INVALID_COMMAND;
+#else
     static uint8_t *out_buf = nullptr;
     static uint8_t *next_out = nullptr;
     int status = TINFL_STATUS_NEEDS_MORE_INPUT;
@@ -160,6 +174,7 @@ void handle_flash_deflated_data(uint8_t *data_buf, uint32_t length)
     {
         fs.last_error = ESP_TOO_MUCH_DATA;
     }
+#endif
 }
 
 esp_command_error handle_flash_end(void)

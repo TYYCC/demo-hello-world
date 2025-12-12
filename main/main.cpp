@@ -26,13 +26,18 @@
 
 static const char* TAG = "main";
 
+extern "C" {
+    extern void elrs_rx_loop();
+    extern void elrs_rx_setup();
+}
+
 static void log_heap_info(const char* step) {
     ESP_LOGI(TAG, "Heap info at step '%s':", step);
     ESP_LOGI(TAG, "  Internal RAM free: %u bytes", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     ESP_LOGI(TAG, "  PSRAM free: %u bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 }
 
-void app_main(void) {
+extern "C" void app_main(void) {
 
     // 初始化NVS
     esp_err_t ret = nvs_flash_init();
@@ -45,7 +50,7 @@ void app_main(void) {
 
     // 初始化LED管理器
     led_manager_config_t led_manager_config = {
-        .led_count = 1, .queue_size = 1, .task_priority = 2, .task_stack_size = 2048};
+        .led_count = 1, .task_priority = 2, .task_stack_size = 2048, .queue_size = 1,};
     if (led_status_manager_init(&led_manager_config) == ESP_OK) {
         led_status_set_style(LED_STYLE_RED_SOLID, LED_PRIORITY_LOW, 0);
         log_heap_info("After LED Manager Init");

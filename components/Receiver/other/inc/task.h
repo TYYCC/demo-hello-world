@@ -12,6 +12,10 @@
 #include "esp_event.h"
 #include "wifi_pairing_manager.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief 初始化TCP任务管理器
  * @return ESP_OK 成功，其他值表示错误
@@ -41,3 +45,7 @@ esp_err_t tcp_task_manager_stop(void);
  * @brief 传统的TCP任务函数（保持向后兼容）
  */
 void tcp_task(void);
+
+#ifdef __cplusplus
+}
+#endif

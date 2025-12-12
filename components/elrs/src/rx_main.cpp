@@ -1262,7 +1262,7 @@ static void setupSerial()
     {
         // For PWM receivers with no serial pins defined, only turn on the Serial port if logging is on
         #if defined(DEBUG_LOG) || defined(DEBUG_RCVR_LINKSTATS)
-        #if defined(PLATFORM_ESP32_S3) && !defined(ESP32_S3_USB_JTAG_ENABLED)
+        #if defined(PLATFORM_ESP32_S3) && !defined(ESP32_S3_USB_JTAG_ENABLED) && CONFIG_TINYUSB_CDC_ENABLED
         // Requires pull-down on GPIO3.  If GPIO3 has a pull-up (for JTAG) this doesn't work.
         USBSerial.begin(serialBaud);
         BackpackOrLogStrm = &USBSerial;
@@ -1340,7 +1340,7 @@ static void setupSerial()
     #if defined(ARDUINO_CORE_INVERT_FIX)
     if(invert == false)
     {
-        uart_set_line_inverse(0, UART_SIGNAL_INV_DISABLE);
+        uart_set_line_inverse(UART_NUM_0, UART_SIGNAL_INV_DISABLE);
     }
     #endif
     // ARDUINO_CORE_INVERT_FIX PT2 end
@@ -1382,7 +1382,7 @@ static void setupSerial()
     }
 
 #if defined(DEBUG_ENABLED)
-#if defined(PLATFORM_ESP32_S3) || defined(PLATFORM_ESP32_C3)
+#if (defined(PLATFORM_ESP32_S3) || defined(PLATFORM_ESP32_C3)) && CONFIG_TINYUSB_CDC_ENABLED
     USBSerial.begin(460800);
     BackpackOrLogStrm = &USBSerial;
 #else
@@ -1957,7 +1957,7 @@ void resetConfigAndReboot()
     ESP.restart();
 }
 
-void setup()
+void elrs_rx_setup()
 {
     if (!options_init())
     {
@@ -2050,7 +2050,7 @@ void setup()
 #if defined(PLATFORM_ESP32_C3)
 void main_loop()
 #else
-void loop()
+void elrs_rx_loop()
 #endif
 {
     unsigned long now = millis();

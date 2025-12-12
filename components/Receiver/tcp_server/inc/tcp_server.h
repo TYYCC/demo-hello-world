@@ -3,6 +3,10 @@
 
 #include "esp_err.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief 启动TCP服务器
  *
@@ -15,5 +19,9 @@ esp_err_t tcp_server_start(void);
  *
  */
 void tcp_server_stop(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // TCP_SERVER_H
