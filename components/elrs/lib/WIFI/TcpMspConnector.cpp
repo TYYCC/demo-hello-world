@@ -25,7 +25,9 @@ void TcpMspConnector::begin()
 
 void TcpMspConnector::handleNewClient(void *arg, AsyncClient *client)
 {
-    DBGLN("\nTCPSOCKET client (%x) connected ip: %s", client, client->remoteIP().toString().c_str());
+    ip4_addr_t addr = client->getRemoteAddress4();
+    DBGLN("\nTCPSOCKET client (%x) connected ip: %d.%d.%d.%d", client, 
+          ip4_addr1(&addr), ip4_addr2(&addr), ip4_addr3(&addr), ip4_addr4(&addr));
     ((TcpMspConnector *)arg)->clientConnect(client);
 }
 
@@ -36,13 +38,17 @@ void TcpMspConnector::handleDataIn(void *arg, AsyncClient *client, void *data, c
 
 void TcpMspConnector::handleDisconnect(void *arg, AsyncClient *client)
 {
-    DBGLN("\n client %s disconnected \n", client->remoteIP().toString().c_str());
+    ip4_addr_t addr = client->getRemoteAddress4();
+    DBGLN("\n client %d.%d.%d.%d disconnected \n", 
+          ip4_addr1(&addr), ip4_addr2(&addr), ip4_addr3(&addr), ip4_addr4(&addr));
     ((TcpMspConnector *)arg)->clientDisconnect(client);
 }
 
 void TcpMspConnector::handleTimeOut(void *arg, AsyncClient *client, uint32_t time)
 {
-    DBGLN("\nclient ACK timeout ip: %s", client->remoteIP().toString().c_str());
+    ip4_addr_t addr = client->getRemoteAddress4();
+    DBGLN("\nclient ACK timeout ip: %d.%d.%d.%d", 
+          ip4_addr1(&addr), ip4_addr2(&addr), ip4_addr3(&addr), ip4_addr4(&addr));
 }
 
 void TcpMspConnector::handleError(void *arg, AsyncClient *client, int8_t error)

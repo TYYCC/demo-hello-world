@@ -36,6 +36,8 @@ set(ELRS_SRCS
     "lib/OPTIONS/hardware.cpp"
     "lib/OPTIONS/options.cpp"
     "lib/MSP/msp.cpp"
+    "lib/CRSF2MSP/crsf2msp.cpp"
+    "lib/CRSF2MSP/msp2crsf.cpp"
     "lib/StubbornReceiver/stubborn_receiver.cpp"
     "lib/StubbornSender/stubborn_sender.cpp"
 
@@ -67,9 +69,14 @@ set(ELRS_SRCS
     "lib/MSPVTX/freqTable.cpp"
     "lib/VTXSPI/devVTXSPI.cpp"
 
+    # PWM support for servo/VTX
+    "lib/PWM/PWM.cpp"
+    "lib/PWM/PWM_ESP32.cpp"
+
     # WiFi / radio glue
     "lib/WIFI/devWIFI.cpp"
     "lib/WIFI/lr1121.cpp"
+    "lib/WIFI/TcpMspConnector.cpp"
 
     # RX serial protocol drivers
     "src/rx-serial/SerialAirPort.cpp"

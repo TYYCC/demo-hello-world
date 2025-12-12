@@ -71,6 +71,7 @@ static void ledcSetupEx(uint8_t chan, ledc_timer_t timer, uint32_t freq, uint8_t
         .timer_num = timer,
         .freq_hz = freq,
         .clk_cfg = LEDC_USE_APB_CLK,
+        .deconfigure = false,
     };
     if (ledc_timer_config(&ledc_timer) != ESP_OK)
     {
@@ -87,7 +88,10 @@ static void ledcAttachPinEx(uint8_t pin, uint8_t chan, ledc_timer_t timer)
         .intr_type = LEDC_INTR_DISABLE,
         .timer_sel = (ledc_timer_t)timer,
         .duty = 0,
-        .hpoint = 0};
+        .hpoint = 0,
+        .sleep_mode = LEDC_SLEEP_MODE_NO_ALIVE_NO_PD,
+        .flags = {0}
+    };
     auto err = ledc_channel_config(&ledc_channel);
     if (err != OK)
     {
@@ -136,6 +140,7 @@ pwm_channel_t PWMController::allocate(uint8_t pin, uint32_t frequency)
         mcpwm_config_t pwm_config = {
             .frequency = frequency,
             .cmpr_a = 0,
+            .cmpr_b = 0,
             .duty_mode = MCPWM_DUTY_MODE_0,
             .counter_mode = MCPWM_UP_COUNTER,
         };
@@ -195,7 +200,7 @@ void PWMController::release(pwm_channel_t channel)
     if (IS_LEDC_CHANNEL(channel))
     {
         auto ch = LEDC_CHANNEL(channel);
-        ledcDetachPin(ledc_config[ch].pin);
+        ledcDetach(ledc_config[ch].pin);
         ledc_config[ch].pin = -1;
         ledc_config[ch].resolution_bits = 0;
         ledc_config[ch].interval = 0;

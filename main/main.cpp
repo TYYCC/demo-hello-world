@@ -23,6 +23,7 @@
 #include "wifi_pairing_manager.h"
 #include "task.h"
 #include "tcp_server.h"
+#include "Arduino.h"
 
 static const char* TAG = "main";
 
@@ -31,14 +32,11 @@ extern "C" {
     extern void elrs_rx_setup();
 }
 
-static void log_heap_info(const char* step) {
-    ESP_LOGI(TAG, "Heap info at step '%s':", step);
-    ESP_LOGI(TAG, "  Internal RAM free: %u bytes", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
-    ESP_LOGI(TAG, "  PSRAM free: %u bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-}
-
 extern "C" void app_main(void) {
-
+    // 初始化Arduino核心 
+    initArduino();
+    // 初始化Elrs接收器核心
+    elrs_rx_setup();
     // 初始化NVS
     esp_err_t ret = nvs_flash_init();
     if (ret != ESP_OK) {
@@ -46,60 +44,56 @@ extern "C" void app_main(void) {
         return;
     }
 
-    log_heap_info("Initial");
-
     // 初始化LED管理器
     led_manager_config_t led_manager_config = {
         .led_count = 1, .task_priority = 2, .task_stack_size = 2048, .queue_size = 1,};
     if (led_status_manager_init(&led_manager_config) == ESP_OK) {
         led_status_set_style(LED_STYLE_RED_SOLID, LED_PRIORITY_LOW, 0);
-        log_heap_info("After LED Manager Init");
     } else {
         ESP_LOGE(TAG, "Failed to initialize LED Status Manager");
     }
 
     // 初始化 SPI 从机并启动接收任务
-    if (spi_receiver_init() == ESP_OK) {
-        spi_receiver_start();
-        log_heap_info("After SPI Receiver Init");
-    } else {
-        ESP_LOGE(TAG, "Failed to initialize SPI Receiver");
-    }
+    // if (spi_receiver_init() == ESP_OK) {
+    //     spi_receiver_start();
+    //     log_heap_info("After SPI Receiver Init");
+    // } else {
+    //     ESP_LOGE(TAG, "Failed to initialize SPI Receiver");
+    // }
 
     // 初始化 USB CDC 从机并启动接收任务
     ESP_LOGI(TAG, "开始初始化USB Receiver");
     if (usb_receiver_init() == ESP_OK) {
         usb_receiver_start();
-        log_heap_info("After USB Receiver Init");
     } else {
         ESP_LOGE(TAG, "Failed to initialize USB Receiver");
     }
 
     // 启动事件驱动的TCP管理器
-    ESP_LOGI(TAG, "启动事件驱动TCP管理器");
+    // ESP_LOGI(TAG, "启动事件驱动TCP管理器");
 
-    // 初始化WiFi配对管理器
-    wifi_pairing_config_t wifi_config = {
-        .scan_interval_ms = 1000,
-        .task_priority = 3,
-        .task_stack_size = 4096,
-        .connection_timeout_ms = 10000,
-        .target_ssid_prefix = "tidy_",
-        .default_password = "22989822",
-    };
-    // 启动带WIFI事件集成的TCP管理器
-    esp_err_t tcp_result = tcp_task_manager_start_with_wifi(&wifi_config);
-    if (tcp_result != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start TCP manager: %s", esp_err_to_name(tcp_result));
-    } else {
-        ESP_LOGI(TAG, "Event-driven TCP manager started successfully");
-        log_heap_info("After TCP Manager Init");
-    }
+    // // 初始化WiFi配对管理器
+    // wifi_pairing_config_t wifi_config = {
+    //     .scan_interval_ms = 1000,
+    //     .task_priority = 3,
+    //     .task_stack_size = 4096,
+    //     .connection_timeout_ms = 10000,
+    //     .target_ssid_prefix = "tidy_",
+    //     .default_password = "22989822",
+    // };
+    // // 启动带WIFI事件集成的TCP管理器
+    // esp_err_t tcp_result = tcp_task_manager_start_with_wifi(&wifi_config);
+    // if (tcp_result != ESP_OK) {
+    //     ESP_LOGE(TAG, "Failed to start TCP manager: %s", esp_err_to_name(tcp_result));
+    // } else {
+    //     ESP_LOGI(TAG, "Event-driven TCP manager started successfully");
+    // }
 
     // 启动TCP服务器
     tcp_server_start();
 
     while (1) {
+        elrs_rx_loop();
         ESP_LOGI(TAG, "Receiver running, free heap: %lu bytes",
                  (unsigned long)esp_get_free_heap_size());
         vTaskDelay(pdMS_TO_TICKS(30000));

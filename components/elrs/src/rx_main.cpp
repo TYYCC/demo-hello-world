@@ -1957,7 +1957,7 @@ void resetConfigAndReboot()
     ESP.restart();
 }
 
-void elrs_rx_setup()
+extern "C" void elrs_rx_setup()
 {
     if (!options_init())
     {
@@ -2050,7 +2050,7 @@ void elrs_rx_setup()
 #if defined(PLATFORM_ESP32_C3)
 void main_loop()
 #else
-void elrs_rx_loop()
+extern "C" void elrs_rx_loop()
 #endif
 {
     unsigned long now = millis();
