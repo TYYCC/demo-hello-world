@@ -34,9 +34,9 @@ extern "C" {
 
 extern "C" void app_main(void) {
     // 初始化Arduino核心 
-    initArduino();
-    // 初始化Elrs接收器核心
-    elrs_rx_setup();
+    // initArduino();
+    // // 初始化Elrs接收器核心
+    // elrs_rx_setup();
     // 初始化NVS
     esp_err_t ret = nvs_flash_init();
     if (ret != ESP_OK) {
@@ -54,20 +54,19 @@ extern "C" void app_main(void) {
     }
 
     // 初始化 SPI 从机并启动接收任务
-    // if (spi_receiver_init() == ESP_OK) {
-    //     spi_receiver_start();
-    //     log_heap_info("After SPI Receiver Init");
-    // } else {
-    //     ESP_LOGE(TAG, "Failed to initialize SPI Receiver");
-    // }
+    if (spi_receiver_init() == ESP_OK) {
+        spi_receiver_start();
+    } else {
+        ESP_LOGE(TAG, "Failed to initialize SPI Receiver");
+    }
 
     // 初始化 USB CDC 从机并启动接收任务
-    ESP_LOGI(TAG, "开始初始化USB Receiver");
-    if (usb_receiver_init() == ESP_OK) {
-        usb_receiver_start();
-    } else {
-        ESP_LOGE(TAG, "Failed to initialize USB Receiver");
-    }
+    // ESP_LOGI(TAG, "开始初始化USB Receiver");
+    // if (usb_receiver_init() == ESP_OK) {
+    //     usb_receiver_start();
+    // } else {
+    //     ESP_LOGE(TAG, "Failed to initialize USB Receiver");
+    // }
 
     // 启动事件驱动的TCP管理器
     // ESP_LOGI(TAG, "启动事件驱动TCP管理器");
@@ -90,10 +89,10 @@ extern "C" void app_main(void) {
     // }
 
     // 启动TCP服务器
-    tcp_server_start();
+    // tcp_server_start();
 
     while (1) {
-        elrs_rx_loop();
+        // elrs_rx_loop();
         ESP_LOGI(TAG, "Receiver running, free heap: %lu bytes",
                  (unsigned long)esp_get_free_heap_size());
         vTaskDelay(pdMS_TO_TICKS(30000));
