@@ -19,7 +19,10 @@
 
 #if defined(PLATFORM_ESP32)
 #include <soc/soc_caps.h>
-#define MULTICORE (SOC_CPU_CORES_NUM > 1)
+// Disable MULTICORE to avoid FreeRTOS spinlock assertion on dual-core ESP32S3
+// The multi-core device coordination causes spinlock_acquire assertions in binary semaphore operations
+#define MULTICORE 0
+// #define MULTICORE (SOC_CPU_CORES_NUM > 1)
 #endif
 
 ///////////////////////////////////////
@@ -65,7 +68,10 @@ void devicesRegister(device_affinity_t *devices, uint8_t count)
         semCore0Begin = xSemaphoreCreateBinary();
         semCore0Complete = xSemaphoreCreateBinary();
         disableCore0WDT();
-        xTaskCreatePinnedToCore(deviceTask, "deviceTask", 32768, NULL, 0, &xDeviceTask, 0);
+        // Give deviceTask a higher priority than the main ELRS task so it can reach the
+        // semaphore rendezvous first and avoid spinlock assertion races on startup.
+        xTaskCreatePinnedToCore(deviceTask, "deviceTask", 32768, NULL, 3, &xDeviceTask, 0);
+        vTaskDelay(1); // let deviceTask start and block on semCore0Begin
     #endif
 }
 

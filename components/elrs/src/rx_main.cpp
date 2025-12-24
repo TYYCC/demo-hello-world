@@ -1959,93 +1959,94 @@ void resetConfigAndReboot()
 
 extern "C" void elrs_rx_setup()
 {
-    bool ret = options_init();
-//     if (!options_init())
-//     {
-//         // In the failure case we set the logging to the null logger so nothing crashes
-//         // if it decides to log something
-//         BackpackOrLogStrm = new NullStream();
+    // bool ret = options_init();
+    if (!options_init())
+    {
+        // In the failure case we set the logging to the null logger so nothing crashes
+        // if it decides to log something
+        BackpackOrLogStrm = new NullStream();
 
-//         // Register the WiFi with the framework
-//         static device_affinity_t wifi_device[] = {
-//             {&WIFI_device, 0}
-//         };
-//         // devicesRegister(wifi_device, ARRAY_SIZE(wifi_device));
-//         // devicesInit();
+        // Register the WiFi with the framework
+        static device_affinity_t wifi_device[] = {
+            {&WIFI_device, 0}
+        };
+        devicesRegister(wifi_device, ARRAY_SIZE(wifi_device));
+        devicesInit();
 
-//         // setConnectionState(hardwareUndefined);
-//     }
-//     else
-//     {
-// #if defined(PLATFORM_ESP32)
-//         // arduino-espressif32 HardwareSerial's constructor for UART0 saves and attaches to GPIO 1 and 3, which
-//         // will reset any other use of them when begin() is actually called for UART0 by CRSFHandset/SerialIO.
-//         // Calling end() here, will call _uartDetachPins() on the underlying UART implementation so they won't
-//         // be saved later (fixed upstream, coming someday)
-//         Serial.end();
-// #endif
+        setConnectionState(hardwareUndefined);
+    }
+    else
+    {
+#if defined(PLATFORM_ESP32)
+        // arduino-espressif32 HardwareSerial's constructor for UART0 saves and attaches to GPIO 1 and 3, which
+        // will reset any other use of them when begin() is actually called for UART0 by CRSFHandset/SerialIO.
+        // Calling end() here, will call _uartDetachPins() on the underlying UART implementation so they won't
+        // be saved later (fixed upstream, coming someday)
+        Serial.end();
+#endif
 
-//         // default to CRSF protocol and the compiled baud rate
-//         serialBaud = firmwareOptions.uart_baud;
+        // default to CRSF protocol and the compiled baud rate
+        serialBaud = firmwareOptions.uart_baud;
 
-//         // pre-initialise serial must be done before anything as some libs write
-//         // to the serial port and they'll block if the buffer fills
-//         #if defined(DEBUG_LOG)
-//         Serial.begin(serialBaud);
-//         BackpackOrLogStrm = &Serial;
-//         #else
-//         BackpackOrLogStrm = new NullStream();
-//         #endif
+        // pre-initialise serial must be done before anything as some libs write
+        // to the serial port and they'll block if the buffer fills
+        #if defined(DEBUG_LOG)
+        Serial.begin(serialBaud);
+        BackpackOrLogStrm = &Serial;
+        #else
+        BackpackOrLogStrm = new NullStream();
+        #endif
 
-//         // Init EEPROM and load config, checking powerup count
-//         setupConfigAndPocCheck();
-//         setupTarget();
-//         // If serial is not already defined, then see if there is serial pin configured in the PWM configuration
-//         if (OPT_HAS_SERVO_OUTPUT && GPIO_PIN_RCSIGNAL_RX == UNDEF_PIN && GPIO_PIN_RCSIGNAL_TX == UNDEF_PIN)
-//         {
-//             for (int i = 0 ; i < GPIO_PIN_PWM_OUTPUTS_COUNT ; i++)
-//             {
-//                 eServoOutputMode pinMode = (eServoOutputMode)config.GetPwmChannel(i)->val.mode;
-//                 if (pinMode == somSerial)
-//                 {
-//                     pwmSerialDefined = true;
-//                     break;
-//                 }
-//             }
-//         }
-//         crsfRouter.addEndpoint(&crsfReceiver);
-//         crsfRouter.addConnector(&otaConnector);
-//         setupSerial();
-//         setupSerial1();
+        // Init EEPROM and load config, checking powerup count
+        setupConfigAndPocCheck();
+        setupTarget();
+        // If serial is not already defined, then see if there is serial pin configured in the PWM configuration
+        if (OPT_HAS_SERVO_OUTPUT && GPIO_PIN_RCSIGNAL_RX == UNDEF_PIN && GPIO_PIN_RCSIGNAL_TX == UNDEF_PIN)
+        {
+            for (int i = 0 ; i < GPIO_PIN_PWM_OUTPUTS_COUNT ; i++)
+            {
+                eServoOutputMode pinMode = (eServoOutputMode)config.GetPwmChannel(i)->val.mode;
+                if (pinMode == somSerial)
+                {
+                    pwmSerialDefined = true;
+                    break;
+                }
+            }
+        }
+        crsfRouter.addEndpoint(&crsfReceiver);
+        crsfRouter.addConnector(&otaConnector);
+        setupSerial();
+        setupSerial1();
 
-//         devicesRegister(ui_devices, ARRAY_SIZE(ui_devices));
-//         devicesInit();
+        devicesRegister(ui_devices, ARRAY_SIZE(ui_devices));
+        delay(10); // 给 core 0 的 deviceTask 时间启动
+        devicesInit();
 
-//         setupBindingFromConfig();
+        setupBindingFromConfig();
 
-//         FHSSrandomiseFHSSsequence(uidMacSeedGet());
+        FHSSrandomiseFHSSsequence(uidMacSeedGet());
 
-//         setupRadio();
+        setupRadio();
 
-//         if (connectionState != radioFailed)
-//         {
-//             // RFnoiseFloor = MeasureNoiseFloor(); //TODO move MeasureNoiseFloor to driver libs
-//             // DBGLN("RF noise floor: %d dBm", RFnoiseFloor);
+        if (connectionState != radioFailed)
+        {
+            // RFnoiseFloor = MeasureNoiseFloor(); //TODO move MeasureNoiseFloor to driver libs
+            // DBGLN("RF noise floor: %d dBm", RFnoiseFloor);
 
-//             DataUlReceiver.SetDataToReceive(DataUlBuffer, ELRS_DATA_UL_BUFFER);
-//             Radio.RXnb();
-//             hwTimer::init(HWtimerCallbackTick, HWtimerCallbackTock);
-//         }
-//     }
+            DataUlReceiver.SetDataToReceive(DataUlBuffer, ELRS_DATA_UL_BUFFER);
+            Radio.RXnb();
+            hwTimer::init(HWtimerCallbackTick, HWtimerCallbackTock);
+        }
+    }
 
-//     registerButtonFunction(ACTION_BIND, EnterBindingModeSafely);
-//     registerButtonFunction(ACTION_RESET_REBOOT, resetConfigAndReboot);
+    registerButtonFunction(ACTION_BIND, EnterBindingModeSafely);
+    registerButtonFunction(ACTION_RESET_REBOOT, resetConfigAndReboot);
 
-//     devicesStart();
+    devicesStart();
 
-//     // setup() eats up some of this time, which can cause the first mode connection to fail.
-//     // Resetting the time here give the first mode a better chance of connection.
-//     RFmodeLastCycled = millis();
+    // setup() eats up some of this time, which can cause the first mode connection to fail.
+    // Resetting the time here give the first mode a better chance of connection.
+    RFmodeLastCycled = millis();
 }
 
 #if defined(PLATFORM_ESP32_C3)

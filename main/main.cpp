@@ -32,6 +32,8 @@ extern "C" {
     extern void elrs_rx_setup();
 }
 
+static bool system_init_complete = false;
+
 static void rx_setup(void* pvParameters)
 {
     esp_log_level_t original_level = esp_log_level_get("*");
@@ -46,27 +48,27 @@ static void rx_setup(void* pvParameters)
     delay(100);  // 等待串口稳定
     
     Serial.println("\n[ELRS] Serial initialized for ELRS debug output");
+    
+    // Wait for system initialization to complete
+    while (!system_init_complete) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    
     // // 初始化Elrs接收器核心
     elrs_rx_setup();
-}
-extern "C" void app_main(void) {
+
+    while (1)
+    {
+        elrs_rx_loop();
+    }
     
-    xTaskCreatePinnedToCore(rx_setup, "led_manager", 4096,
-                                      NULL, 4, NULL, 1);
+}
+static void system_init_task(void* pvParameters)
+{
     // 初始化NVS
     esp_err_t ret = nvs_flash_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize NVS: %s", esp_err_to_name(ret));
-        return;
-    }
-
-    // 初始化LED管理器
-    led_manager_config_t led_manager_config = {
-        .led_count = 1, .task_priority = 2, .task_stack_size = 2048, .queue_size = 1,};
-    if (led_status_manager_init(&led_manager_config) == ESP_OK) {
-        led_status_set_style(LED_STYLE_RED_SOLID, LED_PRIORITY_LOW, 0);
-    } else {
-        ESP_LOGE(TAG, "Failed to initialize LED Status Manager");
     }
 
     // 初始化 SPI 从机并启动接收任务
@@ -76,16 +78,10 @@ extern "C" void app_main(void) {
         ESP_LOGE(TAG, "Failed to initialize SPI Receiver");
     }
 
-    // 初始化 USB CDC 从机并启动接收任务
-    // ESP_LOGI(TAG, "开始初始化USB Receiver");
-    // if (usb_receiver_init() == ESP_OK) {
-    //     usb_receiver_start();
-    // } else {
-    //     ESP_LOGE(TAG, "Failed to initialize USB Receiver");
-    // }
+    // Mark system initialization as complete
+    system_init_complete = true;
 
-    // 启动事件驱动的TCP管理器
-    // ESP_LOGI(TAG, "启动事件驱动TCP管理器");
+    // Initialization complete
 
     // // 初始化WiFi配对管理器
     // wifi_pairing_config_t wifi_config = {
@@ -108,9 +104,19 @@ extern "C" void app_main(void) {
     // tcp_server_start();
 
     while (1) {
-        // elrs_rx_loop();
-        ESP_LOGI(TAG, "Receiver running, free heap: %lu bytes",
+        ESP_LOGI(TAG, "System running, free heap: %lu bytes",
                  (unsigned long)esp_get_free_heap_size());
-        vTaskDelay(pdMS_TO_TICKS(3000));
+        vTaskDelay(pdMS_TO_TICKS(5000));
     }
+}
+
+extern "C" void app_main(void) {
+    // Create system init task on core 1
+    // xTaskCreatePinnedToCore(system_init_task, "sys_init", 4096,
+    //                         NULL, 0, NULL, 1);
+    
+    // Create ELRS RX task on core 1 as well
+    // All tasks run on core 1 to avoid multi-core FreeRTOS spinlock issues
+    xTaskCreatePinnedToCore(rx_setup, "elrs_rx", 32768,
+                            NULL, 1, NULL, 1);
 }
