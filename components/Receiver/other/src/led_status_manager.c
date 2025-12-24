@@ -117,8 +117,8 @@ esp_err_t led_status_manager_init(const led_manager_config_t* config) {
 
     // 创建LED管理任务
     ESP_LOGI(TAG, "创建LED管理任务，栈大小: %d 字节", s_config->task_stack_size);
-    BaseType_t task_ret = xTaskCreate(led_manager_task, "led_manager", s_config->task_stack_size,
-                                      NULL, s_config->task_priority, &s_led_task_handle);
+    BaseType_t task_ret = xTaskCreatePinnedToCore(led_manager_task, "led_manager", s_config->task_stack_size,
+                                      NULL, s_config->task_priority, &s_led_task_handle, 1);
     if (task_ret != pdPASS) {
         ESP_LOGE(TAG, "创建LED管理任务失败");
         s_initialized = false;

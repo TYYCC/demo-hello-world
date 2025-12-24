@@ -32,11 +32,27 @@ extern "C" {
     extern void elrs_rx_setup();
 }
 
-extern "C" void app_main(void) {
-    // 初始化Arduino核心 
-    // initArduino();
+static void rx_setup(void* pvParameters)
+{
+    esp_log_level_t original_level = esp_log_level_get("*");
+    esp_log_level_set("*", ESP_LOG_WARN);
+
+    initArduino();
+    
+    // 初始化 Arduino Serial 用于 ELRS 日志输出
+    Serial.begin(115200);
+    Serial.setDebugOutput(true);  // 允许调试输出
+
+    delay(100);  // 等待串口稳定
+    
+    Serial.println("\n[ELRS] Serial initialized for ELRS debug output");
     // // 初始化Elrs接收器核心
-    // elrs_rx_setup();
+    elrs_rx_setup();
+}
+extern "C" void app_main(void) {
+    
+    xTaskCreatePinnedToCore(rx_setup, "led_manager", 4096,
+                                      NULL, 4, NULL, 1);
     // 初始化NVS
     esp_err_t ret = nvs_flash_init();
     if (ret != ESP_OK) {
@@ -95,6 +111,6 @@ extern "C" void app_main(void) {
         // elrs_rx_loop();
         ESP_LOGI(TAG, "Receiver running, free heap: %lu bytes",
                  (unsigned long)esp_get_free_heap_size());
-        vTaskDelay(pdMS_TO_TICKS(30000));
+        vTaskDelay(pdMS_TO_TICKS(3000));
     }
 }

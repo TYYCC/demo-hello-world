@@ -256,7 +256,7 @@ static bool options_LoadProductAndDeviceName(EspFlashStream &strmFlash)
 
 bool options_init()
 {
-    debugCreateInitLogger();
+    // debugCreateInitLogger();
 
     uint32_t baseAddr = 0;
 #if defined(PLATFORM_ESP32)
