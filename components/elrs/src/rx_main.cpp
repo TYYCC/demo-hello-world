@@ -1262,16 +1262,22 @@ static void setupSerial()
     {
         // For PWM receivers with no serial pins defined, only turn on the Serial port if logging is on
         #if defined(DEBUG_LOG) || defined(DEBUG_RCVR_LINKSTATS)
-        #if defined(PLATFORM_ESP32_S3) && !defined(ESP32_S3_USB_JTAG_ENABLED) && CONFIG_TINYUSB_CDC_ENABLED
-        // Requires pull-down on GPIO3.  If GPIO3 has a pull-up (for JTAG) this doesn't work.
-        USBSerial.begin(serialBaud);
-        BackpackOrLogStrm = &USBSerial;
+        #if defined(PLATFORM_ESP32_S3)
+        // Use Serial for debug logging (should be USB-Serial-JTAG on ESP32-S3)
+        if (!BackpackOrLogStrm) {
+            Serial.begin(serialBaud);
+            BackpackOrLogStrm = &Serial;
+        }
         #else
-        Serial.begin(serialBaud);
-        BackpackOrLogStrm = &Serial;
+        if (!BackpackOrLogStrm) {
+            Serial.begin(serialBaud);
+            BackpackOrLogStrm = &Serial;
+        }
         #endif
         #else
-        BackpackOrLogStrm = new NullStream();
+        if (!BackpackOrLogStrm) {
+            BackpackOrLogStrm = new NullStream();
+        }
         #endif
         serialIO = new SerialNOOP();
         return;
@@ -1345,7 +1351,8 @@ static void setupSerial()
     #endif
     // ARDUINO_CORE_INVERT_FIX PT2 end
 
-    Serial.begin(serialBaud, serialConfig, GPIO_PIN_RCSIGNAL_RX, GPIO_PIN_RCSIGNAL_TX, invert);
+    // Use UART0 for protocol IO when serial protocol is defined
+    Serial0.begin(serialBaud, serialConfig, GPIO_PIN_RCSIGNAL_RX, GPIO_PIN_RCSIGNAL_TX, invert);
 #endif
 
     if (firmwareOptions.is_airport)
@@ -1382,14 +1389,14 @@ static void setupSerial()
     }
 
 #if defined(DEBUG_ENABLED)
-#if (defined(PLATFORM_ESP32_S3) || defined(PLATFORM_ESP32_C3)) && CONFIG_TINYUSB_CDC_ENABLED
-    USBSerial.begin(460800);
-    BackpackOrLogStrm = &USBSerial;
+#if (defined(PLATFORM_ESP32_S3) || defined(PLATFORM_ESP32_C3))
+    if (!BackpackOrLogStrm) { BackpackOrLogStrm = &Serial; }
 #else
-    BackpackOrLogStrm = &Serial;
+    if (!BackpackOrLogStrm) { BackpackOrLogStrm = &Serial; }
 #endif
 #else
-    BackpackOrLogStrm = new NullStream();
+    // Keep existing stream if configured
+    /* no-op */
 #endif
 }
 
@@ -1491,10 +1498,14 @@ void reconfigureSerial1()
 
 static void serialShutdown()
 {
-    BackpackOrLogStrm = new NullStream();
+    // Keep existing logging stream configured in main
     if(serialIO != nullptr)
     {
+#if defined(PLATFORM_ESP32)
+        Serial0.end();
+#else
         Serial.end();
+#endif
         delete serialIO;
         serialIO = nullptr;
     }
@@ -1857,7 +1868,7 @@ static void debugRcvrLinkstats()
             ls.active_antenna ? ls.uplink_RSSI_2 : ls.uplink_RSSI_1,
             ls.uplink_Link_quality, ls.uplink_SNR,
             ls.uplink_TX_Power, fhss, pfd);
-        Serial.write(buf);
+        BackpackOrLogStrm->write(buf);
     }
 #endif
 }
@@ -1959,13 +1970,14 @@ void resetConfigAndReboot()
 
 extern "C" void elrs_rx_setup()
 {
-    // bool ret = options_init();
+    // Ensure BackpackOrLogStrm is initialized before any logging
+    if (!BackpackOrLogStrm)
+    {
+        BackpackOrLogStrm = &Serial;
+    }
+
     if (!options_init())
     {
-        // In the failure case we set the logging to the null logger so nothing crashes
-        // if it decides to log something
-        BackpackOrLogStrm = new NullStream();
-
         // Register the WiFi with the framework
         static device_affinity_t wifi_device[] = {
             {&WIFI_device, 0}
@@ -1982,7 +1994,7 @@ extern "C" void elrs_rx_setup()
         // will reset any other use of them when begin() is actually called for UART0 by CRSFHandset/SerialIO.
         // Calling end() here, will call _uartDetachPins() on the underlying UART implementation so they won't
         // be saved later (fixed upstream, coming someday)
-        Serial.end();
+        Serial0.end();
 #endif
 
         // default to CRSF protocol and the compiled baud rate
@@ -1991,10 +2003,19 @@ extern "C" void elrs_rx_setup()
         // pre-initialise serial must be done before anything as some libs write
         // to the serial port and they'll block if the buffer fills
         #if defined(DEBUG_LOG)
-        Serial.begin(serialBaud);
-        BackpackOrLogStrm = &Serial;
+        #if (defined(PLATFORM_ESP32_S3) || defined(PLATFORM_ESP32_C3)) && CONFIG_TINYUSB_CDC_ENABLED
+        if (!BackpackOrLogStrm) {
+            USBSerial.begin(serialBaud);
+            BackpackOrLogStrm = &USBSerial;
+        }
         #else
-        BackpackOrLogStrm = new NullStream();
+        if (!BackpackOrLogStrm) {
+            Serial0.begin(serialBaud);
+            BackpackOrLogStrm = &Serial0;
+        }
+        #endif
+        #else
+        // Keep existing stream if configured
         #endif
 
         // Init EEPROM and load config, checking powerup count

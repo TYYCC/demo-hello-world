@@ -24,6 +24,47 @@
 #include "task.h"
 #include "tcp_server.h"
 #include "Arduino.h"
+#include "logging.h"
+#include <cstdio>
+#include <Stream.h>
+
+// Simple wrapper stream that writes to stdout (USB-Serial-JTAG)
+class USBStream : public Stream {
+public:
+    // Write a single character
+    size_t write(uint8_t c) override {
+        putchar(c);
+        return 1;
+    }
+
+    // Write multiple bytes
+    size_t write(const uint8_t *buffer, size_t size) override {
+        for (size_t i = 0; i < size; i++) {
+            putchar(buffer[i]);
+        }
+        return size;
+    }
+
+    // Read is not supported
+    int read() override {
+        return -1;
+    }
+
+    int peek() override {
+        return -1;
+    }
+
+    int available() override {
+        return 0;
+    }
+
+    void flush() override {
+        fflush(stdout);
+    }
+};
+
+// Global USB stream instance
+USBStream usbStream;
 
 static const char* TAG = "main";
 
@@ -32,29 +73,11 @@ extern "C" {
     extern void elrs_rx_setup();
 }
 
-static bool system_init_complete = false;
-
 static void rx_setup(void* pvParameters)
 {
-    esp_log_level_t original_level = esp_log_level_get("*");
-    esp_log_level_set("*", ESP_LOG_WARN);
-
     initArduino();
-    
-    // 初始化 Arduino Serial 用于 ELRS 日志输出
-    Serial.begin(115200);
-    Serial.setDebugOutput(true);  // 允许调试输出
-
-    delay(100);  // 等待串口稳定
-    
-    Serial.println("\n[ELRS] Serial initialized for ELRS debug output");
-    
-    // Wait for system initialization to complete
-    while (!system_init_complete) {
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-    
-    // // 初始化Elrs接收器核心
+    delay(100);
+    BackpackOrLogStrm = &usbStream;
     elrs_rx_setup();
 
     while (1)
@@ -77,11 +100,6 @@ static void system_init_task(void* pvParameters)
     } else {
         ESP_LOGE(TAG, "Failed to initialize SPI Receiver");
     }
-
-    // Mark system initialization as complete
-    system_init_complete = true;
-
-    // Initialization complete
 
     // // 初始化WiFi配对管理器
     // wifi_pairing_config_t wifi_config = {
@@ -111,12 +129,15 @@ static void system_init_task(void* pvParameters)
 }
 
 extern "C" void app_main(void) {
-    // Create system init task on core 1
-    // xTaskCreatePinnedToCore(system_init_task, "sys_init", 4096,
-    //                         NULL, 0, NULL, 1);
+    // Initialize NVS first
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
     
-    // Create ELRS RX task on core 1 as well
-    // All tasks run on core 1 to avoid multi-core FreeRTOS spinlock issues
+    // Create ELRS RX task on core 0 (same as main)
     xTaskCreatePinnedToCore(rx_setup, "elrs_rx", 32768,
-                            NULL, 1, NULL, 1);
+                            NULL, 1, NULL, 0);
 }

@@ -102,7 +102,7 @@ static void execute_command()
         SLIP_send_frame_data(ESP_BAD_DATA_LEN);
         SLIP_send_frame_data(0xEE);
         SLIP_send_frame_delimiter();
-        Serial.flush(true);
+        Serial.flush();
         return;
     }
 
@@ -245,7 +245,7 @@ static void execute_command()
 
     SLIP_send_frame_status(status);
     SLIP_send_frame_delimiter();
-    Serial.flush(true);
+    Serial.flush();
 
     if (status == ESP_UPDATE_OK && (command->op == ESP_FLASH_DEFLATED_END || command->op == ESP_FLASH_END))
     {
