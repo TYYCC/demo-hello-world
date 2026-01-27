@@ -11,8 +11,8 @@
     "radio_rst":11,
     "radio_nss":18,
 
-    "power_rxen":38,
-    "power_txen":39,
+    "power_rxen":2,
+    "power_txen":1,
 
     "power_min":0,
     "power_high":0,
