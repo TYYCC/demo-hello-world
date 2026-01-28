@@ -517,7 +517,6 @@ void SetRFLinkRate(uint8_t index) // Set speed of RF link
 
 void ICACHE_RAM_ATTR SendRCdataToRF()
 {
-  DBGLN("SendRCdataToRF");
   // Do not send a stale channels packet to the RX if one has not been received from the handset
   // *Do* send data if a packet has never been received from handset and the timer is running
   // this is the case when bench testing and TXing without a handset
@@ -665,11 +664,9 @@ void crsfNotifyTaskFunc(void* arg)
 {
     while (1)
     {
-      DBGLN("crsfNotifyTaskFunc: waiting for notify");
       uint32_t notify;
       if (xTaskNotifyWait(0, 0xFFFFFFFF, &notify, portMAX_DELAY))
       {
-          DBGLN("crsfNotifyTaskFunc: got notify");
           /* If we are busy writing to EEPROM (committing config changes) then we just advance the nonces, i.e. no SPI traffic */
           if (commitInProgress)
           {
@@ -687,7 +684,6 @@ void crsfNotifyTaskFunc(void* arg)
           // Sync OpenTX to this point
           if (!(OtaNonce % ExpressLRS_currAirRate_Modparams->numOfSends))
           {
-              DBGLN("TimerCallback: Sync OpenTX");
               handset->JustSentRFpacket();
           }
 
@@ -1075,28 +1071,21 @@ static void ExitBindingMode()
 {
   if (!InBindingMode)
     return;
-
-  // CRITICAL: Stop the timer BEFORE changing state
-  // This ensures no hardware interrupt is running while we modify global state
-  DBGLN("ExitBindingMode: stopping timer");
-  hwTimer::stop();
   
   DataUlSender.ResetState();
 
   // Reset CRCInit to UID-defined value
   OtaUpdateCrcInitFromUid();
-  
   // NOW it's safe to clear the flag
   InBindingMode = false;
 
   // Reset to original connection state
   setConnectionState(noCrossfire);
-  
+
+  SetRFLinkRate(config.GetRate()); //return to original rate
+
   // Reset telemetry receive phase
   TelemetryRcvPhase = ttrpTransmitting;
-
-  DBGLN("ExitBindingMode: binding mode exited, timer stopped");
-  // The timer will be resumed by UART when connection is restored
 }
 
 void EnterBindingModeSafely()
