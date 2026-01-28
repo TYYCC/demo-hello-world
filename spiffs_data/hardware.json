@@ -9,7 +9,6 @@
     "radio_nss": 16,
     "radio_rst": 5,
     "radio_sck": 1,
-    "radio_dcdc": true,
     "power_txen": 45,
     "power_rxen": 48,
     "power_min": 0,
