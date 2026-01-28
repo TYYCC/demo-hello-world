@@ -56,7 +56,6 @@ void RFAMP_hal::init()
 
 void ICACHE_RAM_ATTR RFAMP_hal::TXenable(SX12XX_Radio_Number_t radioNumber)
 {
-    DBGLN("TXenable entered");
 #if defined(PLATFORM_ESP32_C3)
     if (radioNumber == SX12XX_Radio_All)
     {
@@ -102,7 +101,6 @@ void ICACHE_RAM_ATTR RFAMP_hal::TXenable(SX12XX_Radio_Number_t radioNumber)
 
 void ICACHE_RAM_ATTR RFAMP_hal::RXenable()
 {
-    DBGLN("RXenable entered");
 #if defined(PLATFORM_ESP32_C3)
     GPIO.out_w1ts.out_w1ts = rx_enable_set_bits;
     GPIO.out_w1tc.out_w1tc = rx_enable_clr_bits;

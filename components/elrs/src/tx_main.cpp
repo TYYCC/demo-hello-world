@@ -517,6 +517,7 @@ void SetRFLinkRate(uint8_t index) // Set speed of RF link
 
 void ICACHE_RAM_ATTR SendRCdataToRF()
 {
+  DBGLN("SendRCdataToRF");
   // Do not send a stale channels packet to the RX if one has not been received from the handset
   // *Do* send data if a packet has never been received from handset and the timer is running
   // this is the case when bench testing and TXing without a handset
@@ -659,71 +660,93 @@ void ICACHE_RAM_ATTR nonceAdvance()
   }
 }
 
+TaskHandle_t elrsTaskHandle = nullptr;
+void crsfNotifyTaskFunc(void* arg)
+{
+    while (1)
+    {
+      DBGLN("crsfNotifyTaskFunc: waiting for notify");
+      uint32_t notify;
+      if (xTaskNotifyWait(0, 0xFFFFFFFF, &notify, portMAX_DELAY))
+      {
+          DBGLN("crsfNotifyTaskFunc: got notify");
+          /* If we are busy writing to EEPROM (committing config changes) then we just advance the nonces, i.e. no SPI traffic */
+          if (commitInProgress)
+          {
+              nonceAdvance();
+              continue;
+          }
+          
+          if (!handset || !ExpressLRS_currAirRate_Modparams)
+          {
+            DBGLN("crsfNotifyTaskFunc: handset or Modparams null");
+            DBGLN("handset: %p, Modparams: %p\n", 
+                handset, ExpressLRS_currAirRate_Modparams);
+            continue;
+          }
+          // Sync OpenTX to this point
+          if (!(OtaNonce % ExpressLRS_currAirRate_Modparams->numOfSends))
+          {
+              DBGLN("TimerCallback: Sync OpenTX");
+              handset->JustSentRFpacket();
+          }
+
+          // Do not transmit or advance FHSS/Nonce until in disconnected/connected state
+          if (connectionState == awaitingModelId)
+              continue;
+
+          // Tx Antenna Diversity
+          if ((OtaNonce % ExpressLRS_currAirRate_Modparams->numOfSends == 0 || // Swicth with new packet data
+              OtaNonce % ExpressLRS_currAirRate_Modparams->numOfSends == ExpressLRS_currAirRate_Modparams->numOfSends / 2) && // Swicth in the middle of DVDA sends
+              TelemetryRcvPhase == ttrpTransmitting) // Only switch when transmitting.  A diversity rx will send tlm back on the best antenna.  So don't switch away from it.
+          {
+              switchDiversityAntennas();
+          }
+          // Nonce advances on every timer tick
+          if (!InBindingMode)
+              OtaNonce++;
+
+          // If HandleTLM has started Receive mode, TLM packet reception should begin shortly
+          // Skip transmitting on this slot
+          if (TelemetryRcvPhase == ttrpPreReceiveGap)
+          {
+              TelemetryRcvPhase = ttrpExpectingTelem;
+          #if defined(Regulatory_Domain_EU_CE_2400)
+              // Use downlink LQ for LBT success ratio instead for EU/CE reg domain
+              linkStats.downlink_Link_quality = LBTSuccessCalc.getLQ();
+          #else
+              linkStats.downlink_Link_quality = LqTQly.getLQ();
+          #endif
+              LqTQly.inc();
+              continue;
+          }
+          else if (TelemetryRcvPhase == ttrpExpectingTelem && !LqTQly.currentIsSet())
+          {
+              // Indicate no telemetry packet received to the DP system
+              DynamicPower_TelemetryUpdate(DYNPOWER_UPDATE_MISSED);
+          }
+
+          TelemetryRcvPhase = ttrpTransmitting;
+
+          SendRCdataToRF();
+      }
+    }
+}
+
 /*
  * Called as the TOCK timer ISR when there is a CRSF connection from the handset
  */
 void ICACHE_RAM_ATTR timerCallback()
 {
-  /* If we are busy writing to EEPROM (committing config changes) then we just advance the nonces, i.e. no SPI traffic */
-  if (commitInProgress)
-  {
-    nonceAdvance();
-    return;
-  }
-
-  // In binding mode, do minimal work - only advance nonce, don't try to send RC data
-  // This prevents accessing uninitialized linkStats and other objects
-  if (InBindingMode)
-  {
-    nonceAdvance();
-    return;
-  }
-
-  // Sync OpenTX to this point
-  if (handset && !(OtaNonce % ExpressLRS_currAirRate_Modparams->numOfSends))
-  {
-    handset->JustSentRFpacket();
-  }
-
-  // Do not transmit or advance FHSS/Nonce until in disconnected/connected state
-  if (connectionState == awaitingModelId)
-    return;
-
-  // Tx Antenna Diversity
-  if ((OtaNonce % ExpressLRS_currAirRate_Modparams->numOfSends == 0 || // Swicth with new packet data
-      OtaNonce % ExpressLRS_currAirRate_Modparams->numOfSends == ExpressLRS_currAirRate_Modparams->numOfSends / 2) && // Swicth in the middle of DVDA sends
-      TelemetryRcvPhase == ttrpTransmitting) // Only switch when transmitting.  A diversity rx will send tlm back on the best antenna.  So don't switch away from it.
-  {
-    switchDiversityAntennas();
-  }
-
-  // Nonce advances on every timer tick
-  if (!InBindingMode)
-    OtaNonce++;
-
-  // If HandleTLM has started Receive mode, TLM packet reception should begin shortly
-  // Skip transmitting on this slot
-  if (TelemetryRcvPhase == ttrpPreReceiveGap)
-  {
-    TelemetryRcvPhase = ttrpExpectingTelem;
-#if defined(Regulatory_Domain_EU_CE_2400)
-    // Use downlink LQ for LBT success ratio instead for EU/CE reg domain
-    linkStats.downlink_Link_quality = LBTSuccessCalc.getLQ();
-#else
-    linkStats.downlink_Link_quality = LqTQly.getLQ();
-#endif
-    LqTQly.inc();
-    return;
-  }
-  else if (TelemetryRcvPhase == ttrpExpectingTelem && !LqTQly.currentIsSet())
-  {
-    // Indicate no telemetry packet received to the DP system
-    DynamicPower_TelemetryUpdate(DYNPOWER_UPDATE_MISSED);
-  }
-
-  TelemetryRcvPhase = ttrpTransmitting;
-
-  SendRCdataToRF();
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xTaskNotifyFromISR(
+        elrsTaskHandle,
+        0x01,
+        eSetBits,
+        &xHigherPriorityTaskWoken
+    );
+    if (xHigherPriorityTaskWoken)
+        portYIELD_FROM_ISR();
 }
 
 static void UARTdisconnected()
@@ -1578,9 +1601,11 @@ extern "C" void elrs_loop(void)
   executeDeferredFunction(micros());
 
   HandleUARTin();
+  // DBGLN("connectionState= %d", connectionState);
 
   if (connectionState > MODE_STATES)
   {
+
     return;
   }
 
@@ -1592,6 +1617,7 @@ extern "C" void elrs_loop(void)
 
   if (DataDlReceiver.HasFinishedData())
   {
+    DBGLN("DataDlReceiver finished data");
       if (CRSFinBuffer[0] == CRSF_ADDRESS_USB)
       {
         if (config.GetLinkMode() == TX_MAVLINK_MODE)
@@ -1637,6 +1663,7 @@ extern "C" void elrs_loop(void)
   {
     otaConnector.pumpSender();
   }
+  // DBGLN("elrs_loop end");
 }
 
 //==============================================================================

@@ -123,6 +123,9 @@ void app_main(void) {
 // 项目组件头文件
 #include "task_init.h"
 
+// 虚拟手柄头文件
+#include "DummyHandset.h"
+
 static const char* TAG = "MAIN";
 
 #define ELRS_EN
@@ -134,14 +137,24 @@ extern void elrs_loop(void);
 extern esp_err_t components_init(void);
 }
 #endif
+extern void crsfNotifyTaskFunc(void* arg);
+extern TaskHandle_t elrsTaskHandle;
 
-extern firmware_options_t firmwareOptions;  // 获取ELRS固件选项
+void createCrsfTask()
+{
+    xTaskCreatePinnedToCore(
+        crsfNotifyTaskFunc,
+        "CRSFNotify",
+        4096,
+        nullptr,
+        6,
+        &elrsTaskHandle,
+        xPortGetCoreID()  // 和 Arduino loop 同核
+    );
+}
+
 extern "C" void app_main(void) {
 #if defined(ELRS_EN)
-    // 静默 Arduino HAL 的 WDT 相关警告日志（disableCore*WDT 会报 "Failed to remove"）
-    // Arduino HAL 使用空 TAG，所以用 "*" 临时降低全局错误日志等级，初始化后恢复
-    esp_log_level_t original_level = esp_log_level_get("*");
-    esp_log_level_set("*", ESP_LOG_WARN);  // 临时只显示警告及以上
     initArduino();
     
     // 初始化 Arduino Serial 用于 ELRS 日志输出（通过 USB CDC）
@@ -149,15 +162,10 @@ extern "C" void app_main(void) {
     Serial.setDebugOutput(true);  // 允许调试输出
     delay(100);  // 等待串口稳定
     Serial.println("\n[ELRS] Serial initialized for ELRS debug output");
-    
     elrs_setup();
-    
-    firmwareOptions.wifi_auto_on_interval = -1;
-    ESP_LOGI(TAG, "Disabled auto WiFi startup (wifi_auto_on_interval = -1)");
-    
-    // 恢复日志等级
-    esp_log_level_set("*", original_level);
-    
+    initVirtualHandset();
+    delay(500);
+    createCrsfTask();
 #endif
 
     // 初始化所有组件
@@ -180,8 +188,6 @@ extern "C" void app_main(void) {
 #if defined(ELRS_EN)
         elrs_loop();
 #endif
-        ESP_LOGI(TAG, "Main loop: System running normally");
-        vTaskDelay(pdMS_TO_TICKS(30000)); // 30秒打印一次状态
     }
 }
 

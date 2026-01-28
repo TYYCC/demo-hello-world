@@ -444,7 +444,6 @@ void ICACHE_RAM_ATTR SX1280Driver::TXnbISR()
 void ICACHE_RAM_ATTR SX1280Driver::TXnb(uint8_t * data, bool sendGeminiBuffer, uint8_t * dataGemini, SX12XX_Radio_Number_t radioNumber)
 {
     transmittingRadio = radioNumber;
-
     //catch TX timeout
     if (currOpmode == SX1280_MODE_TX)
     {

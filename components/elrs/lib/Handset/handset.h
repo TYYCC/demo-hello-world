@@ -2,6 +2,8 @@
 
 #include "common.h"
 
+extern uint32_t ChannelData[16];
+
 typedef void (*RcChannelsOverrideCallback_fn)(uint32_t channels[], size_t channelCnt);
 
 /**

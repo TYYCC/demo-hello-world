@@ -49,6 +49,7 @@ set(ELRS_SRCS
     "src/rxtx_common.cpp"
     "src/dynpower.cpp"
     "src/tx_main.cpp"
+    "src/DummyHandset.cpp"
 )
 set(ELRS_INCS
     "lib/SX12xxDriverCommon"
